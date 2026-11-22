@@ -1073,7 +1073,7 @@ void Window::DrawContent() {
         if (!it.header.empty()) { DrawText(it.header, strong_.Get(), r, t_.text); continue; }
         if (it.noteKind == kAbout) {
             DrawText(L"Overlook", title_.Get(), { r.left, r.top, r.right, r.top + 40 }, t_.text);
-            DrawText(L"Version " OVERLOOK_VERSION_W, body_.Get(), { r.left, r.top + 42, r.right, r.top + 62 }, t_.text2);
+            DrawText(L"Version " OVERLOOK_VERSION_W L"  ·  Made by wallbangz", body_.Get(), { r.left, r.top + 42, r.right, r.top + 62 }, t_.text2);
             DrawText(L"A macOS lock-screen style clock that lives on the Windows desktop.", body_.Get(),
                      { r.left, r.top + 66, r.right, r.top + 86 }, t_.text);
             continue;
