@@ -195,21 +195,15 @@ void Window::BuildControls() {
         ctls[o].action = kOpenIni;
     }
 
-    // Clock
+    // Clock: what it says, then startup
     header(0, L"Time");
     row({ add(Kind::Toggle, 0, L"Hour24", L"24-hour clock", L"", L"1") });
-    row({ add(Kind::Toggle, 0, L"LeadingZero", L"Leading zero", L"07:05 instead of 7:05", L"1") });
     {
         const int i = add(Kind::Toggle, 0, L"ShowAmPm", L"Show AM/PM", L"In 12-hour mode", L"0");
         ctls[i].dependsOn = L"!Hour24";
         row({ i });
     }
-    {
-        const int i = slider(0, L"TransitionMs", L"Minute transition", L"Unchanged digits slide, changed ones crossfade",
-                             L"500", 0, 2000, 50, 250, L" ms");
-        ctls[i].zeroText = L"Off";
-        row({ i });
-    }
+    row({ add(Kind::Toggle, 0, L"LeadingZero", L"Leading zero", L"07:05 instead of 7:05", L"1") });
     header(0, L"Date");
     {
         const int i = add(Kind::EditCombo, 0, L"DateFormat", L"Date format", L"", L"dddd, MMMM d");
@@ -225,13 +219,19 @@ void Window::BuildControls() {
         ctls[l].boxWidth = 260;
         row({ l });
     }
+    header(0, L"Startup");
+    {
+        const int s = add(Kind::Toggle, 0, L"StartWithWindows", L"Start with Windows", L"", L"0");
+        ctls[s].appWide = true;
+        row({ s });
+    }
 
-    // Look
-    header(1, L"Size and position");
-    row({ slider(1, L"TimeSize", L"Time size", L"", L"145", 40, 400, 1, 10, L"") });
-    row({ slider(1, L"DateSize", L"Date size", L"", L"32", 8, 120, 1, 4, L"") });
+    // Look: where and how big, colour, opacity, motion
+    header(1, L"Position and size");
     row({ slider(1, L"VerticalPosition", L"Vertical position", L"% of the screen height, from the top",
                  L"16.5", 0, 100, 0.1, 1, L" %", 1) });
+    row({ slider(1, L"TimeSize", L"Time size", L"", L"145", 40, 400, 1, 10, L"") });
+    row({ slider(1, L"DateSize", L"Date size", L"", L"32", 8, 120, 1, 4, L"") });
     header(1, L"Colour");
     {
         const int sw = add(Kind::Color, 1, L"Color", L"Text colour", L"Used on dark wallpapers", L"#FFFFFF");
@@ -239,35 +239,49 @@ void Window::BuildControls() {
         ctls[hex].boxWidth = 104;
         row({ sw, hex });
     }
-    row({ slider(1, L"Opacity", L"Opacity", L"", L"80", 0, 100, 1, 10, L" %") });
     row({ add(Kind::Toggle, 1, L"AutoContrast", L"Auto-contrast", L"Dark text on bright wallpapers", L"1") });
     row({ slider(1, L"Tint", L"Tint", L"Takes on the colour of the wallpaper behind it", L"35", 0, 100, 1, 10, L" %") });
-    row({ add(Kind::Toggle, 1, L"Shadow", L"Shadow", L"A soft shadow for legibility", L"1") });
+    header(1, L"Opacity and shadow");
+    row({ slider(1, L"Opacity", L"Opacity", L"", L"80", 0, 100, 1, 10, L" %") });
     row({ slider(1, L"SecondaryOpacity", L"Weather and now-playing opacity", L"% of the clock's opacity, so the time stands out",
                  L"70", 0, 100, 1, 10, L" %") });
+    row({ add(Kind::Toggle, 1, L"Shadow", L"Shadow", L"A soft shadow for legibility", L"1") });
+    header(1, L"Motion");
+    {
+        const int i = slider(1, L"TransitionMs", L"Minute transition", L"Unchanged digits slide, changed ones crossfade",
+                             L"500", 0, 2000, 50, 250, L" ms");
+        ctls[i].zeroText = L"Off";
+        row({ i });
+    }
 
-    // Weather
+    // Weather: the on/off switch first, then where, then what it shows
     note(2, L"", kCityEmpty);
+    row({ add(Kind::Toggle, 2, L"ShowWeather", L"Show the weather line", L"", L"1") });
     {
         const int c = add(Kind::Edit, 2, L"WeatherCity", L"City",
                           L"A city, \"Porto, PT\" or a postcode; empty turns the weather off. Only the city (once) and its "
                           L"coordinates are sent to open-meteo.com.", L"");
         ctls[c].appWide = true;
         ctls[c].boxWidth = 260;
+        ctls[c].dependsOn = L"ShowWeather";
         row({ c });
         const int u = add(Kind::Combo, 2, L"WeatherUnits", L"Units", L"", L"C");
         ctls[u].appWide = true;
         ctls[u].options = { { L"C", L"Celsius, km/h" }, { L"F", L"Fahrenheit, mph" } };
+        ctls[u].dependsOn = L"ShowWeather";
         row({ u });
-        row({ add(Kind::Toggle, 2, L"ShowWeather", L"Show the weather line", L"", L"1") });
     }
     header(2, L"Extras, each shown only when it matters");
     {
+        const int r = slider(2, L"RainThreshold", L"Chance of rain", L"Shown when it reaches this within the next hours",
+                             L"30", 0, 100, 5, 10, L" %");
+        ctls[r].dependsOn = L"ShowWeather";
+        row({ r });
         const struct { const wchar_t *key, *label, *desc; } kExtras[] = {
             { L"FeelsLike", L"Feels like", L"When the apparent temperature is a few degrees off" },
             { L"Wind", L"Wind", L"Strong wind, with the direction it blows from" },
             { L"UV", L"UV index", L"When it is high" },
-            { L"AirQuality", L"Air quality", L"From “poor”" },
+            { L"AirQuality", L"Air quality", L"From \u201Cpoor\u201D" },
             { L"SunTimes", L"Sunrise and sunset", L"When the next one is a few hours away" },
         };
         for (auto& e : kExtras) {
@@ -275,10 +289,6 @@ void Window::BuildControls() {
             ctls[i].dependsOn = L"ShowWeather";
             row({ i });
         }
-        const int r = slider(2, L"RainThreshold", L"Chance of rain", L"Shown when it reaches this within the next hours",
-                             L"30", 0, 100, 5, 10, L" %");
-        ctls[r].dependsOn = L"ShowWeather";
-        row({ r });
     }
 
     // Now playing
@@ -286,12 +296,14 @@ void Window::BuildControls() {
     {
         const int a = add(Kind::Edit, 3, L"NowPlayingApps", L"Apps",
                           L"Part of each app's name, comma separated. Add chrome, msedge or firefox for browsers, or "
-                          L"“all” for every app.", kDefaultApps);
+                          L"\u201Call\u201D for every app.", kDefaultApps);
         ctls[a].appWide = true;
         ctls[a].boxWidth = 300;
+        ctls[a].dependsOn = L"NowPlaying";
         const int d = add(Kind::Button, 3, L"", L"Default", L"The usual music apps", L"");
         ctls[d].action = kAppsDefault;
         ctls[d].appWide = true;
+        ctls[d].dependsOn = L"NowPlaying";
         row({ a, d });
         const int l = slider(3, L"NowPlayingLinger", L"Stays after pausing", L"Dimmed while paused, then it fades out",
                              L"60", 0, 600, 5, 60, L" s");
@@ -309,12 +321,6 @@ void Window::BuildControls() {
         const int n = slider(4, L"NightOpacity", L"Night opacity", L"", L"45", 0, 100, 1, 10, L" %");
         ctls[n].dependsOn = L"NightDim";
         row({ n });
-    }
-    header(4, L"Startup");
-    {
-        const int s = add(Kind::Toggle, 4, L"StartWithWindows", L"Start with Windows", L"", L"0");
-        ctls[s].appWide = true;
-        row({ s });
     }
 }
 
