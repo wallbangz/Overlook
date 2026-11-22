@@ -1,0 +1,108 @@
+#pragma once
+#include <windows.h>
+#include <string>
+#include <vector>
+
+// All sizes are in DIPs (1 DIP = 1/96 inch; scaled by the target monitor's DPI).
+struct Settings {
+    // Placement
+    std::wstring monitor = L"top";   // all, or a comma list of: primary | top | bottom | left | right | <index> | \\.\DISPLAYn | <name substring>
+    double verticalPos   = 17.0;     // % of monitor height where the centre of the date+time block sits
+    double horizontalOffset = 0.0;   // DIPs, + moves right
+
+    // Sizes
+    double timeSize      = 126.0;    // DIPs (font em size)
+    double dateSize      = 28.0;     // DIPs
+    double gap           = 22.0;     // DIPs between date baseline and top of the time digits
+    double timeTracking  = -2.0;     // letter spacing, % of em (negative = tighter)
+    double dateTracking  = 0.0;
+
+    // Colour
+    COLORREF color       = RGB(0xFF, 0xFF, 0xFF);
+    COLORREF darkColor   = RGB(0x1A, 0x1A, 0x1A);
+    double opacity       = 80.0;     // %
+    bool   autoContrast  = true;
+    double brightThreshold = 60.0;   // mean perceived lightness (L*, 0-100) above which darkColor is used
+    double tint          = 35.0;     // % pull toward the wallpaper's hue behind the clock (0 = neutral)
+
+    // Shadow
+    bool   shadow        = true;
+    double shadowOpacity = 30.0;     // %
+    double shadowBlur    = 6.0;      // DIPs (gaussian std deviation)
+    double shadowOffsetY = 1.0;      // DIPs
+
+    // Weather line under the time (Open-Meteo); off while weatherCity is empty
+    std::wstring weatherCity;        // "Lisbon", "Porto, PT", a postcode...
+    bool   weatherFahrenheit = false;
+    bool   showWeather   = true;     // per-monitor switch for the line
+    bool   feelsLike     = true;     // "feels 12°" when it differs from the temperature by >= feelsLikeDiff
+    double feelsLikeDiff = 2.0;
+    bool   wind          = true;     // wind speed/direction when >= windThreshold (km/h, or mph with F)
+    double windThreshold = 20.0;
+    bool   sunTimes      = true;     // next sunrise/sunset when it is within sunHours (0 = always)
+    double sunHours      = 3.0;
+    double weatherMaxWidth = 150.0;  // % of the time's width the line may take; extras give way beyond it
+    bool   uv            = true;     // "UV 7" from UVThreshold
+    double uvThreshold   = 6.0;
+    bool   airQuality    = true;     // "Air poor" and worse (European index; US index with Fahrenheit)
+
+    // Now-playing line under the weather (Windows' media controls: Spotify, browsers...)
+    bool   nowPlaying    = true;
+    double nowPlayingLinger = 60.0;  // seconds the line stays after playback pauses
+    double nowPlayingPausedOpacity = 50.0;   // % of the text's opacity while paused
+    double secondaryOpacity = 100.0;  // weather and now-playing lines, % of opacity
+    double weatherSize   = 24.0;     // DIPs
+    double weatherGap    = 30.0;     // DIPs between the time baseline and the top of the weather line's capitals
+    double rainThreshold = 30.0;     // show the chance of rain when it reaches this % ...
+    double rainHours     = 6.0;      // ... within this many hours
+
+    // OLED care (per monitor)
+    bool   pixelShift    = false;    // move the clock along a slow loop, 1 px at a time
+    double pixelShiftRange = 4.0;    // physical pixels each way
+    bool   nightDim      = false;    // lower the opacity between sunset and sunrise
+    double nightOpacity  = 45.0;     // %
+    std::wstring nightStart = L"20:00";   // used when there are no sunset/sunrise times (weather off)
+    std::wstring nightEnd   = L"07:00";
+
+    // Crossfade when the displayed text changes (0 = instant)
+    double transitionMs  = 500.0;
+
+    // Formats
+    bool   hour24        = true;
+    bool   leadingZero   = true;     // "07:05" vs "7:05"
+    bool   showAmPm      = false;    // only in 12h mode
+    std::wstring dateFormat = L"dddd, MMMM d";  // Windows date picture (GetDateFormatEx)
+    std::wstring dateLocale = L"en-US";
+    std::wstring timeFeatures;       // OpenType features for the time, e.g. "tnum,ss01"
+    double opticalCentring = 0.0;    // 0 = time's ink box centred, 100 = its centre of mass; between = a blend
+    bool   centreOnColon = false;    // CentreOn=colon: the time's colon on the centre line (OpticalCentring then unused)
+    std::wstring dateFeatures;
+
+    // App
+    bool   startWithWindows = false;
+    bool   trayIcon      = true;
+    bool   show          = true;     // per monitor: this monitor shows a clock (tray menu checkboxes)
+    bool   hideClocks    = false;    // app-wide: hide every clock (tray menu)
+    std::wstring hiddenMonitors;     // app-wide: "Dell U2720Q;\\.\DISPLAY3" - clocks switched off in the tray menu
+    bool   log           = false;
+};
+
+std::wstring ExeBase();   // the exe's path without ".exe": Overlook.ini, .log and .weather.ini sit beside it
+std::wstring IniPath();
+std::wstring ExeDir();
+std::wstring ExePath();
+void WriteDefaultIni(const std::wstring& path);
+Settings LoadSettings();   // [Clock]
+// Spec part of each [Monitor <spec>] section, in file order.
+std::vector<std::wstring> MonitorSections();
+// base with the keys of [Monitor <spec>] applied (app-wide keys stay as in base).
+Settings MonitorSettings(const Settings& base, const std::wstring& spec);
+void SaveBool(const wchar_t* key, bool v);
+void SaveString(const wchar_t* key, const std::wstring& v);   // into [Clock]
+
+// HKCU Run key
+bool IsAutostartEnabled();
+void SetAutostart(bool on);
+
+void Log(const wchar_t* fmt, ...);
+extern bool g_logEnabled;

@@ -1,0 +1,9 @@
+# build output
+bin/
+obj/
+
+# runtime
+*.log
+
+# verification captures
+screenshot-*.png
