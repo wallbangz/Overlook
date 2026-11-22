@@ -15,5 +15,5 @@ for ($i = $start; $i -lt $lines.Count; $i++) {
 }
 $body = ($lines[$start..($end - 1)] -join "`n").Trim()
 if (-not $body) { [Console]::Error.WriteLine("The $v section of CHANGELOG.md is empty"); exit 1 }
-Set-Content -Path $Out -Value $body -Encoding utf8
+Set-Content -Path $Out -Value $body -Encoding utf8 -NoNewline   # no trailing CRLF in the notes
 exit 0
