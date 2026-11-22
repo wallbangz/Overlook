@@ -1127,19 +1127,33 @@ int RunDemo(std::wstring dir, const std::wstring& darkBg, const std::wstring& li
     WeatherReading w;
     w.valid = true; w.code = 1; w.isDay = true; w.temp = 18; w.high = 21; w.low = 12;
     GetSystemTimeAsFileTime(&w.fetchedUtc);
-    std::wstring media(1, icon::Music);
-    media += L" Bonobo — Kerala";
+    std::wstring demoTrack(1, icon::Music);
+    demoTrack += L" Bonobo — Kerala";
     Clock c;
     c.mon = mon;
     c.s = s;
     c.winRc = mon.rc;
 
-    auto make = [&](int h, int m, const std::wstring& bgPath, Shown& f) {
+    // The demo day, Saturday 27 June 2026 (a waxing gibbous moon at night), at h:m local time, as UTC ticks (the weather line's "now").
+    auto utcAt = [](int h, int m) {
+        SYSTEMTIME local{}, utc{};
+        local.wYear = 2026; local.wMonth = 6; local.wDay = 27; local.wDayOfWeek = 6; local.wHour = (WORD)h; local.wMinute = (WORD)m;
+        TzSpecificLocalTimeToSystemTime(nullptr, &local, &utc);
+        FILETIME ft{};
+        SystemTimeToFileTime(&utc, &ft);
+        return (ULONGLONG(ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
+    };
+    auto make = [&](int h, int m, const std::wstring& bgPath, Shown& f, const WeatherReading* wx = nullptr,
+                    const std::wstring* track = nullptr) {
         SYSTEMTIME t{};
-        t.wYear = 2026; t.wMonth = 6; t.wDay = 13; t.wDayOfWeek = 6; t.wHour = (WORD)h; t.wMinute = (WORD)m;
+        t.wYear = 2026; t.wMonth = 6; t.wDay = 27; t.wDayOfWeek = 6; t.wHour = (WORD)h; t.wMinute = (WORD)m;
         const std::wstring date = FormatDate(t, s), time = FormatTime(t, s);
+        const std::wstring& media = track ? *track : demoTrack;
+        WeatherReading rd = wx ? *wx : w;
+        const ULONGLONG now = utcAt(h, m);
+        rd.fetchedUtc = { (DWORD)now, (DWORD)(now >> 32) };
         std::wstring weather;
-        if (!PrepareFitted(g_r, s, mon.dpi, date, time, &w, NowUtc(), false, f.lay, &weather, nullptr, media)) return false;
+        if (!PrepareFitted(g_r, s, mon.dpi, date, time, &rd, now, false, f.lay, &weather, nullptr, media)) return false;
         const ClockGeometry& g = f.lay.g;
         const POINT pos{ monSz.cx / 2 - g.anchorX, (int)lround(monSz.cy * s.verticalPos / 100.0) - g.anchorY };
         RECT ink = g.ink;
@@ -1225,6 +1239,39 @@ int RunDemo(std::wstring dir, const std::wstring& darkBg, const std::wstring& li
             else save(L"wallpaper", n, walls, layersAt(cap, (t - kStart) / (kWall - kStart)));
         }
         for (int i = 0; i < kFps; ++i) save(L"wallpaper", n, { { lightBg, 1.f } }, { { b.bmp.Get(), at(b), 1.f } });
+    }
+    {   // 3. The weather line through a day: each extra appears only when it matters, and each new
+        // reading crossfades in (the time glides when it changes too).
+        struct Step { int h, m; WeatherReading w; };
+        std::vector<Step> steps;
+        auto base = [](int code, double temp, double high, double low, bool day = true) {
+            WeatherReading r;
+            r.valid = true; r.code = code; r.isDay = day; r.temp = temp; r.high = high; r.low = low; r.latitude = 40;
+            return r;
+        };
+        steps.push_back({ 10, 5, base(0, 19, 27, 15) });                                 // clear
+        { auto r = base(0, 30, 31, 18); r.uvIndex = 9; r.euAqi = 64; steps.push_back({ 13, 40, r }); }   // hot: UV, air
+        { auto r = base(3, 22, 24, 17); r.rainChance = 70; r.rainAtUtc = utcAt(16, 0); steps.push_back({ 14, 20, r }); }   // rain later
+        { auto r = base(2, 16, 23, 15); r.hasApparent = true; r.apparent = 12; r.hasWind = true; r.windSpeed = 38;
+          r.windDir = 315; steps.push_back({ 17, 35, r }); }                              // windy, feels colder
+        { auto r = base(1, 19, 23, 15); r.sunUtc[1] = utcAt(21, 5); steps.push_back({ 19, 50, r }); }   // sunset soon
+        steps.push_back({ 23, 15, base(0, 15, 23, 14, false) });                         // clear night: the moon
+        const std::wstring none;
+        std::vector<Shown> frames(steps.size());
+        for (size_t i = 0; i < steps.size(); ++i)
+            if (!make(steps[i].h, steps[i].m, darkBg, frames[i], &steps[i].w, &none)) return 1;
+        const Walls walls{ { darkBg, 1.f } };
+        int n = 0;
+        for (size_t i = 0; i < frames.size(); ++i) {
+            for (int k = 0; k < kFps * 16 / 10; ++k) save(L"weather", n, walls, { { frames[i].bmp.Get(), at(frames[i]), 1.f } });
+            if (i + 1 == frames.size()) break;
+            Shown next;
+            if (!make(steps[i + 1].h, steps[i + 1].m, darkBg, next, &steps[i + 1].w, &none)) return 1;
+            Capture cap;
+            if (!capture(frames[i], next, 0, cap)) return 1;
+            const int fr = (int)lround(cap.seconds * kFps);
+            for (int k = 0; k <= fr; ++k) save(L"weather", n, walls, layersAt(cap, (double)k / fr));
+        }
     }
     return rc;
 }

@@ -21,6 +21,10 @@ Overlook is new. If you try it, please [tell me how it went](#feedback).
 |---|---|
 | ![14:19 turns into 14:20: the 14: slides into place while 19 fades into 20](docs/demo-minute.gif) | ![The wallpaper fades from dark to light and the clock fades from light to dark text with it](docs/demo-wallpaper.gif) |
 
+**The weather through a day**: extras appear only when they matter (UV and air quality on a hot day, the hour rain is likely, wind and feels-like, the coming sunset, the moon's phase at night).
+
+![The weather line changing through a day: clear; hot with UV 9 and poor air; 70% rain at 16:00; windy with feels-like; sunset at 21:05; a clear night with the moon](docs/demo-weather.gif)
+
 ## Install
 
 1. Download `Overlook.zip` from [Releases](../../releases) and unzip it to a folder you'll keep, e.g. `%LOCALAPPDATA%\Overlook`.
