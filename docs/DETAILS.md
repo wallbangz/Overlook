@@ -28,6 +28,12 @@ The [README](../README.md) covers installing and the main settings. This page ha
   - `centring.txt` also checks the colon with `CentreOn=colon` in every minute, and reports how far the whole time then leans.
   - `time-centring-120.png` / `-192.png` compare `OpticalCentring` 0, 50 and 100 and `CentreOn=colon` on hard times.
 - `Overlook.exe --preview [folder]` draws each monitor's clock over its wallpaper as `preview-N-now.png`, and as `preview-N-proposed.png` with the sizes 15% larger and the date's capitals at 9.5% of the screen height. `preview.txt` lists the settings each image used. `--wallpaper <image>` draws over that image instead (how `docs/screenshot.png` was made). It doesn't touch a running clock.
+- `Overlook.exe --demo <folder> <dark image> <light image>` renders the README animations as PNG frames (30 fps, half size) with the clock's own drawing and transition, over two background images, with default settings, made-up weather and a sample track. It writes `minute-NNN.png`, `wallpaper-NNN.png` and `demo-still.png` (the screenshot). The GIFs were made with ffmpeg:
+
+  ```
+  ffmpeg -framerate 30 -i minute-%03d.png -vf "crop=760:240:260:30,split[a][b];[a]palettegen[p];[b][p]paletteuse=dither=sierra2_4a" -loop 0 demo-minute.gif
+  ```
+
 - `Overlook.exe --exit` closes a running instance. Launching it again while running reloads its settings.
 - Keep `OFL.txt` (the Inter font licence) next to the exe.
 

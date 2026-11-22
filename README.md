@@ -17,6 +17,10 @@ Overlook is new. If you try it, please [tell me how it went](#feedback).
 - **OLED care**: an optional slow pixel shift and night dimming.
 - **Light**: one small exe with no installer. It sleeps between minutes and pauses while the screen is off or locked.
 
+| The minute changes | The wallpaper changes |
+|---|---|
+| ![14:19 turns into 14:20: the 14: slides into place while 19 fades into 20](docs/demo-minute.gif) | ![The wallpaper fades from dark to light and the clock fades from light to dark text with it](docs/demo-wallpaper.gif) |
+
 ## Install
 
 1. Download `Overlook.zip` from [Releases](../../releases) and unzip it to a folder you'll keep, e.g. `%LOCALAPPDATA%\Overlook`.

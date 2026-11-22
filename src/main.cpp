@@ -415,6 +415,14 @@ void FinishAnimation(Clock& c) {
 //     to their new centred position at full opacity;
 //   - the changed characters of the old and new time crossfade;
 //   - the date stays put, unless it (or the colour) changed, in which case it crossfades too.
+// --demo: StartTransition hands its layers here instead of to the compositor.
+struct Capture {
+    std::vector<ClockRenderer::AnimLayer> layers;
+    std::vector<ComPtr<ID2D1Bitmap1>> keep;
+    double seconds = 0, alpha = 1;
+};
+Capture* g_capture;
+
 bool StartTransition(Clock& c, const Shown& from) {
     using AL = ClockRenderer::AnimLayer;
     const Shown& to = c.cur;
@@ -485,6 +493,13 @@ bool StartTransition(Clock& c, const Shown& from) {
             const float sx = std::fabs(dx - std::round(dx)) < 0.01f ? (float)n.x - std::round(dx) : (float)n.x - dx;
             layers.push_back({ AL::Solid, bmp.Get(), sx, (float)o.y, (float)n.x, (float)n.y });
         }
+    }
+    if (g_capture) {   // --demo: hand the layers over instead of animating them
+        g_capture->layers = layers;
+        g_capture->keep = keep;
+        g_capture->seconds = FadeMs(c.s) / 1000.0;
+        g_capture->alpha = to.lay.opacity / 100.0;
+        return true;
     }
     return g_r.Animate(c.hwnd, layers.data(), (int)layers.size(), FadeMs(c.s) / 1000.0, to.lay.opacity / 100.0);
 }
@@ -1075,7 +1090,8 @@ int RunPreview(std::wstring dir, const std::wstring& wallpaperOverride) {
             auto bmp = r.RenderFrame(lay, color, dark);
             wchar_t name[64], line[512];
             swprintf_s(name, L"preview-%d-%s.png", n, v ? L"proposed" : L"now");
-            if (!bmp || !r.SaveScene(dir + name, { monW, monH }, wall, position, bg, { { bmp.Get(), pos } },
+            if (!bmp || !r.SaveScene(dir + name, { monW, monH }, { { wall, 1.f } }, position, bg,
+                                       { { bmp.Get(), { (float)pos.x, (float)pos.y }, 1.f } },
                                        (float)std::min(1.0, 1920.0 / monW))) rc = 1;
             swprintf_s(line, L"%s  %s (%dx%d, %u dpi): TimeSize=%g DateSize=%g Gap=%g WeatherSize=%g WeatherGap=%g "
                              L"SecondaryOpacity=%g VerticalPosition=%.1f; date capitals at %.1f%% of the height\r\n",
@@ -1096,6 +1112,123 @@ int RunPreview(std::wstring dir, const std::wstring& wallpaperOverride) {
     return n ? rc : 1;
 }
 
+// --demo <folder> <dark image> <light image>: PNG frames (30 fps, half size) for the README's
+// animations, drawn with the clock's own renderer and transition, the compositor's curves
+// reproduced here: a minute change (14:19 -> 14:20) and a wallpaper change from the dark image
+// to the light one. Default settings, made-up weather and track. Also demo-still.png.
+int RunDemo(std::wstring dir, const std::wstring& darkBg, const std::wstring& lightBg) {
+    if (!dir.empty() && dir.back() != L'\\' && dir.back() != L'/') dir += L'\\';
+    if (!g_r.Init()) return 1;
+    const Settings s;   // what a new user gets
+    MonitorInfo mon;
+    mon.rc = { 0, 0, 2560, 1440 };
+    mon.dpi = 120;
+    const SIZE monSz{ 2560, 1440 };
+    WeatherReading w;
+    w.valid = true; w.code = 1; w.isDay = true; w.temp = 18; w.high = 21; w.low = 12;
+    GetSystemTimeAsFileTime(&w.fetchedUtc);
+    std::wstring media(1, icon::Music);
+    media += L" Bonobo — Kerala";
+    Clock c;
+    c.mon = mon;
+    c.s = s;
+    c.winRc = mon.rc;
+
+    auto make = [&](int h, int m, const std::wstring& bgPath, Shown& f) {
+        SYSTEMTIME t{};
+        t.wYear = 2026; t.wMonth = 6; t.wDay = 13; t.wDayOfWeek = 6; t.wHour = (WORD)h; t.wMinute = (WORD)m;
+        const std::wstring date = FormatDate(t, s), time = FormatTime(t, s);
+        std::wstring weather;
+        if (!PrepareFitted(g_r, s, mon.dpi, date, time, &w, NowUtc(), false, f.lay, &weather, nullptr, media)) return false;
+        const ClockGeometry& g = f.lay.g;
+        const POINT pos{ monSz.cx / 2 - g.anchorX, (int)lround(monSz.cy * s.verticalPos / 100.0) - g.anchorY };
+        RECT ink = g.ink;
+        OffsetRect(&ink, pos.x, pos.y);
+        WallpaperSample ws;
+        f.color = s.color;
+        f.dark = false;
+        if (g_r.SampleImage(bgPath, monSz, ink, ws)) {
+            f.dark = s.autoContrast && ws.lightness > s.brightThreshold;
+            f.color = TintColor(f.dark ? s.darkColor : s.color, ws, s.tint / 100.0);
+        }
+        f.rc = { pos.x, pos.y, pos.x + g.width, pos.y + g.height };
+        f.win = mon.rc;
+        wchar_t col[48];
+        swprintf_s(col, L"|%06X|%.0f|%d", (unsigned)f.color, s.opacity, f.dark ? 1 : 0);
+        f.dateKey = date + col;
+        f.weatherKey = weather + col;
+        f.mediaKey = media + col;
+        f.key = f.dateKey + L"|" + time + L"|" + weather + L"|" + f.mediaKey;
+        f.bmp = g_r.RenderFrame(f.lay, f.color, f.dark);
+        return f.bmp != nullptr;
+    };
+    using Walls = std::vector<ClockRenderer::SceneWall>;
+    using Parts = std::vector<ClockRenderer::ScenePart>;
+    constexpr int kFps = 30;
+    constexpr float kScale = 0.5f;
+    int rc = 0;
+    auto save = [&](const wchar_t* prefix, int& n, const Walls& walls, const Parts& parts) {
+        wchar_t name[64];
+        swprintf_s(name, L"%s-%03d.png", prefix, n++);
+        if (!g_r.SaveScene(dir + name, monSz, walls, 4, 0, parts, kScale)) rc = 1;
+    };
+    auto at = [](const Shown& f) { return D2D1_POINT_2F{ (float)f.rc.left, (float)f.rc.top }; };
+    auto smooth = [](double u) { return u * u * (3 - 2 * u); };
+    // The transition's layers at progress u (0..1) of the clock's own fade, as Animate runs them.
+    auto layersAt = [&](const Capture& cap, double u) {
+        Parts parts;
+        const double e = smooth(std::clamp(u, 0.0, 1.0));
+        for (const auto& l : cap.layers) {
+            double o = 1;
+            if (l.kind == ClockRenderer::AnimLayer::FadeIn) o = e;
+            if (l.kind == ClockRenderer::AnimLayer::FadeOut) o = 1 - cap.alpha * e <= 1e-6 ? 0 : (1 - e) / (1 - cap.alpha * e);
+            parts.push_back({ l.bmp, { (float)(l.x0 + (l.x1 - l.x0) * e), (float)(l.y0 + (l.y1 - l.y0) * e) }, (float)o });
+        }
+        return parts;
+    };
+    auto capture = [&](const Shown& from, Shown& to, double fadeMs, Capture& cap) {
+        g_fadeMs = fadeMs;
+        c.cur = std::move(to);
+        g_capture = &cap;
+        const bool ok = StartTransition(c, from);
+        g_capture = nullptr;
+        g_fadeMs = 0;
+        to = std::move(c.cur);
+        return ok;
+    };
+
+    {   // 1. The minute changes: 14:19 -> 14:20 (the "14:" glides, "19" fades to "20").
+        Shown a, b;
+        Capture cap;
+        if (!make(14, 19, darkBg, a) || !make(14, 20, darkBg, b) || !capture(a, b, 0, cap)) return 1;
+        const Walls walls{ { darkBg, 1.f } };
+        int n = 0;
+        for (int i = 0; i < kFps * 6 / 10; ++i) save(L"minute", n, walls, { { a.bmp.Get(), at(a), 1.f } });
+        const int frames = (int)lround(cap.seconds * kFps);
+        for (int i = 0; i <= frames; ++i) save(L"minute", n, walls, layersAt(cap, (double)i / frames));
+        for (int i = 0; i < kFps; ++i) save(L"minute", n, walls, { { b.bmp.Get(), at(b), 1.f } });
+        if (!g_r.SaveScene(dir + L"demo-still.png", monSz, walls, 4, 0, { { b.bmp.Get(), at(b), 1.f } }, 0.75f)) rc = 1;
+    }
+    {   // 2. The wallpaper changes from dark to light. Windows crossfades it over ~1.2 s; the clock
+        // starts once Windows names the new image (~0.4 s in) and ends with it, as on the desktop.
+        Shown a, b;
+        Capture cap;
+        constexpr double kWall = 1.2, kStart = 0.4;
+        if (!make(14, 20, darkBg, a) || !make(14, 20, lightBg, b) || !capture(a, b, (kWall - kStart) * 1000, cap)) return 1;
+        int n = 0;
+        for (int i = 0; i < kFps * 6 / 10; ++i) save(L"wallpaper", n, { { darkBg, 1.f } }, { { a.bmp.Get(), at(a), 1.f } });
+        const int frames = (int)lround(kWall * kFps);
+        for (int i = 0; i <= frames; ++i) {
+            const double t = (double)i / kFps;
+            const Walls walls{ { darkBg, 1.f }, { lightBg, (float)smooth(std::min(1.0, t / kWall)) } };
+            if (t < kStart) save(L"wallpaper", n, walls, { { a.bmp.Get(), at(a), 1.f } });
+            else save(L"wallpaper", n, walls, layersAt(cap, (t - kStart) / (kWall - kStart)));
+        }
+        for (int i = 0; i < kFps; ++i) save(L"wallpaper", n, { { lightBg, 1.f } }, { { b.bmp.Get(), at(b), 1.f } });
+    }
+    return rc;
+}
+
 int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR cmdLine, int) {
     g_inst = inst;
     const bool exitCmd = wcsstr(cmdLine, L"--exit") != nullptr;
@@ -1106,6 +1239,19 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR cmdLine, int) {
         CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         const int rc = RunWeatherTest(dir);
         CoUninitialize();
+        return rc;
+    }
+    if (wcsstr(cmdLine, L"--demo")) {   // --demo <folder> <dark image> <light image>
+        int argc = 0;
+        LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+        int rc = 1;
+        for (int i = 1; argv && i + 3 < argc; ++i)
+            if (wcscmp(argv[i], L"--demo") == 0) {
+                CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+                rc = RunDemo(argv[i + 1], argv[i + 2], argv[i + 3]);   // (COM stays up: g_r is released at exit)
+                break;
+            }
+        if (argv) LocalFree(argv);
         return rc;
     }
     if (const wchar_t* t = wcsstr(cmdLine, L"--preview")) {

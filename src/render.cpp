@@ -1,5 +1,6 @@
 #include "render.h"
 #include "icons.h"
+#include "wallpaper.h"
 #include "../res/resource.h"
 #include <d2d1_1helper.h>
 #include <d2d1effects.h>
@@ -596,7 +597,52 @@ bool ClockRenderer::SaveGallery(const std::wstring& path, const std::vector<Gall
     return SavePng(target.Get(), W, H, dpi, path);
 }
 
-bool ClockRenderer::SaveScene(const std::wstring& path, SIZE mon, const std::wstring& wallpaper, int position,
+// Decodes an image once (kept for the next call) as premultiplied BGRA pixels.
+const ClockRenderer::Image* ClockRenderer::DecodeImage(const std::wstring& path) {
+    for (const auto& im : images_) if (im.path == path) return &im;
+    ComPtr<IWICBitmapDecoder> dec;
+    ComPtr<IWICBitmapFrameDecode> fr;
+    ComPtr<IWICFormatConverter> conv;
+    Image im;
+    im.path = path;
+    if (FAILED(wic_->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &dec)) ||
+        FAILED(dec->GetFrame(0, &fr)) || FAILED(wic_->CreateFormatConverter(&conv)) ||
+        FAILED(conv->Initialize(fr.Get(), GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr, 0,
+                                WICBitmapPaletteTypeCustom)) ||
+        FAILED(conv->GetSize(&im.w, &im.h))) {
+        Log(L"preview: could not load %s", path.c_str());
+        return nullptr;
+    }
+    im.px.resize((size_t)im.w * im.h * 4);
+    if (FAILED(conv->CopyPixels(nullptr, im.w * 4, (UINT)im.px.size(), im.px.data()))) return nullptr;
+    images_.push_back(std::move(im));
+    return &images_.back();
+}
+
+bool ClockRenderer::SampleImage(const std::wstring& path, SIZE mon, const RECT& rc, WallpaperSample& out) {
+    const Image* im = DecodeImage(path);
+    if (!im || rc.right <= rc.left || rc.bottom <= rc.top) return false;
+    // The image fills the monitor (centred, cropped), as the desktop's "fill" mode shows it.
+    const double s = std::max((double)mon.cx / im->w, (double)mon.cy / im->h);
+    const double ox = (mon.cx - im->w * s) / 2, oy = (mon.cy - im->h * s) / 2;
+    auto lin = [](int v) { const double c = v / 255.0; return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4); };
+    double r = 0, g = 0, b = 0;
+    const int kCols = 48, kRows = 16;
+    for (int y = 0; y < kRows; ++y)
+        for (int x = 0; x < kCols; ++x) {
+            const double sx = rc.left + (x + 0.5) * (rc.right - rc.left) / kCols, sy = rc.top + (y + 0.5) * (rc.bottom - rc.top) / kRows;
+            const UINT ix = (UINT)std::clamp((sx - ox) / s, 0.0, im->w - 1.0), iy = (UINT)std::clamp((sy - oy) / s, 0.0, im->h - 1.0);
+            const BYTE* p = &im->px[((size_t)iy * im->w + ix) * 4];
+            b += lin(p[0]); g += lin(p[1]); r += lin(p[2]);
+        }
+    const double n = kCols * kRows;
+    out.r = r / n; out.g = g / n; out.b = b / n;
+    const double Y = 0.2126 * out.r + 0.7152 * out.g + 0.0722 * out.b;
+    out.lightness = Y > 0.008856 ? 116.0 * std::cbrt(Y) - 16.0 : 903.3 * Y;
+    return true;
+}
+
+bool ClockRenderer::SaveScene(const std::wstring& path, SIZE mon, const std::vector<SceneWall>& walls, int position,
                               COLORREF bg, const std::vector<ScenePart>& parts, float scale) {
     if (!dcomp_ && !CreateDevices()) return false;
     const UINT W = (UINT)std::lround(mon.cx * scale), H = (UINT)std::lround(mon.cy * scale);
@@ -604,43 +650,33 @@ bool ClockRenderer::SaveScene(const std::wstring& path, SIZE mon, const std::wst
         D2D1_BITMAP_OPTIONS_TARGET, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), 96.f, 96.f);
     ComPtr<ID2D1Bitmap1> target;
     if (FAILED(offDc_->CreateBitmap(D2D1::SizeU(W, H), nullptr, 0, bp, &target))) return false;
-    ComPtr<ID2D1Bitmap1> wall;   // the wallpaper image at full size, 1 DIP per image pixel
-    if (!wallpaper.empty()) {
-        ComPtr<IWICBitmapDecoder> dec;
-        ComPtr<IWICBitmapFrameDecode> fr;
-        ComPtr<IWICFormatConverter> conv;
-        const D2D1_BITMAP_PROPERTIES1 wp = D2D1::BitmapProperties1(
-            D2D1_BITMAP_OPTIONS_NONE, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), 96.f, 96.f);
-        if (SUCCEEDED(wic_->CreateDecoderFromFilename(wallpaper.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &dec)) &&
-            SUCCEEDED(dec->GetFrame(0, &fr)) && SUCCEEDED(wic_->CreateFormatConverter(&conv)) &&
-            SUCCEEDED(conv->Initialize(fr.Get(), GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr, 0,
-                                       WICBitmapPaletteTypeCustom)))
-            offDc_->CreateBitmapFromWicBitmap(conv.Get(), &wp, &wall);
-        if (!wall) Log(L"preview: could not load the wallpaper %s", wallpaper.c_str());
-    }
     offDc_->SetTarget(target.Get());
     offDc_->SetDpi(96.f, 96.f);
     offDc_->SetTransform(D2D1::Matrix3x2F::Scale(scale, scale));   // monitor px -> output px
     offDc_->BeginDraw();
     offDc_->Clear(D2D1::ColorF(GetRValue(bg) / 255.f, GetGValue(bg) / 255.f, GetBValue(bg) / 255.f));
-    if (wall) {
+    for (const SceneWall& w : walls) {
+        const Image* im = w.path.empty() ? nullptr : DecodeImage(w.path);
+        if (!im || w.opacity <= 0) continue;
+        ComPtr<ID2D1Bitmap1> wall;   // 1 DIP per image pixel
+        const D2D1_BITMAP_PROPERTIES1 wp = D2D1::BitmapProperties1(
+            D2D1_BITMAP_OPTIONS_NONE, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), 96.f, 96.f);
+        if (FAILED(offDc_->CreateBitmap(D2D1::SizeU(im->w, im->h), im->px.data(), im->w * 4, wp, &wall))) continue;
         // DESKTOP_WALLPAPER_POSITION: 0 centre, 2 stretch, 3 fit; fill (4) for the rest (span and
         // tile roughly).
-        const D2D1_SIZE_U is = wall->GetPixelSize();
-        const float iw = (float)is.width, ih = (float)is.height, mw = (float)mon.cx, mh = (float)mon.cy;
+        const float iw = (float)im->w, ih = (float)im->h, mw = (float)mon.cx, mh = (float)mon.cy;
         float dw = iw * std::max(mw / iw, mh / ih), dh = ih * std::max(mw / iw, mh / ih);
         if (position == 0) { dw = iw; dh = ih; }
         else if (position == 2) { dw = mw; dh = mh; }
         else if (position == 3) { dw = iw * std::min(mw / iw, mh / ih); dh = ih * std::min(mw / iw, mh / ih); }
         const D2D1_RECT_F dst = D2D1::RectF((mw - dw) / 2, (mh - dh) / 2, (mw + dw) / 2, (mh + dh) / 2);
-        offDc_->DrawBitmap(wall.Get(), &dst, 1.f, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC, nullptr, nullptr);
+        offDc_->DrawBitmap(wall.Get(), &dst, w.opacity, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC, nullptr, nullptr);
     }
     for (const ScenePart& p : parts) {
-        if (!p.bmp) continue;
+        if (!p.bmp || p.opacity <= 0) continue;
         const D2D1_SIZE_U s = p.bmp->GetPixelSize();
-        const D2D1_RECT_F dst = D2D1::RectF((float)p.pos.x, (float)p.pos.y, (float)(p.pos.x + (LONG)s.width),
-                                            (float)(p.pos.y + (LONG)s.height));
-        offDc_->DrawBitmap(p.bmp, &dst, 1.f, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC, nullptr, nullptr);
+        const D2D1_RECT_F dst = D2D1::RectF(p.pos.x, p.pos.y, p.pos.x + (float)s.width, p.pos.y + (float)s.height);
+        offDc_->DrawBitmap(p.bmp, &dst, p.opacity, D2D1_INTERPOLATION_MODE_LINEAR, nullptr, nullptr);
     }
     const HRESULT hr = offDc_->EndDraw();
     offDc_->SetTarget(nullptr);

@@ -103,9 +103,12 @@ public:
     // Preview: a monitor of size `mon` (px) showing its wallpaper as the desktop does (position:
     // DESKTOP_WALLPAPER_POSITION; bg: the colour around it), with frames drawn on top at px
     // positions; written as a PNG scaled by `scale`.
-    struct ScenePart { ID2D1Bitmap1* bmp; POINT pos; };
-    bool SaveScene(const std::wstring& path, SIZE mon, const std::wstring& wallpaper, int position, COLORREF bg,
+    struct ScenePart { ID2D1Bitmap1* bmp; D2D1_POINT_2F pos; float opacity = 1; };   // pos: monitor px
+    struct SceneWall { std::wstring path; float opacity = 1; };                       // drawn in order
+    bool SaveScene(const std::wstring& path, SIZE mon, const std::vector<SceneWall>& walls, int position, COLORREF bg,
                    const std::vector<ScenePart>& parts, float scale);
+    // The average colour and lightness of an image filling a monitor of size mon, over rc (px).
+    bool SampleImage(const std::wstring& path, SIZE mon, const RECT& rc, struct WallpaperSample& out);
 
     // Where a text layout's ink lies, in DIPs from the layout's left edge (drawn at 4 px per DIP
     // on the CPU): the ink box's edges, and the centre of mass of its coverage (where the eye
@@ -137,6 +140,9 @@ private:
     std::vector<std::pair<wchar_t, ComPtr<ID2D1Geometry>>> iconGeo_;   // built once per icon, in icon units
     ComPtr<ID2D1StrokeStyle> roundCaps_;
     bool CreateDevices();
+    struct Image { std::wstring path; UINT w = 0, h = 0; std::vector<BYTE> px; };   // decoded, PBGRA
+    std::vector<Image> images_;   // --preview / --demo backgrounds
+    const Image* DecodeImage(const std::wstring& path);
     bool SavePng(ID2D1Bitmap1* target, UINT W, UINT H, float dpi, const std::wstring& path);   // opaque image
     // One composition target per clock window (one window per monitor).
     struct Target {
