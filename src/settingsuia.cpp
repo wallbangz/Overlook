@@ -294,7 +294,12 @@ IFACEMETHODIMP Element::GetPropertyValue(PROPERTYID p, VARIANT* v) {
     auto boolean = [&](bool b) { v->vt = VT_BOOL; v->boolVal = b ? VARIANT_TRUE : VARIANT_FALSE; };
     switch (p) {
     case UIA_NamePropertyId: str(w.UiaName(i)); break;
-    case UIA_HelpTextPropertyId: if (!c.desc.empty()) str(c.desc); break;
+    case UIA_HelpTextPropertyId: {
+        std::wstring d = w.ShownDesc(i);
+        if (!c.elsewhere.empty()) d += (d.empty() ? L"" : L". ") + c.elsewhere;
+        if (!d.empty()) str(d);
+        break;
+    }
     case UIA_AutomationIdPropertyId:
         str(!c.monitorId.empty() ? L"Show:" + c.monitorId : c.kind == Kind::Reset ? L"Reset:" + w.ctls[c.owner].key
             : !c.key.empty() ? c.key + (c.kind == Kind::Edit && c.key == L"Color" ? L"Hex" : L"") : c.label);

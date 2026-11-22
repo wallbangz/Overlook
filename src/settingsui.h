@@ -56,6 +56,8 @@ struct Ctl {
     // State
     std::wstring value;           // effective value, as ini text
     bool overridden = false;      // set in the scope's own [Monitor ...] section
+    std::wstring elsewhere;       // All monitors: "LG OLED keeps its own: 16.2 %" (monitors that override it)
+    std::vector<std::wstring> elsewhereSections;   // ... and the sections that do
     bool enabled = true;
     bool visible = true;
     D2D1_RECT_F box{};            // control, DIPs; page controls in content coordinates (before scrolling)
@@ -70,6 +72,7 @@ struct Item {
     Note noteKind = kStatic;      // notes whose text depends on the current values
     std::vector<int> ctls;
     D2D1_RECT_F rc{};             // content coordinates; empty = not shown
+    float extraH = 0;             // a row's bottom line ("... keeps its own"), DIPs
 };
 
 struct Page {
@@ -87,7 +90,7 @@ struct Scope {
 };
 
 struct Theme {
-    D2D1_COLOR_F bg, pane, card, cardHover, cardStroke, text, text2, disabled, accent, accentHover, onAccent,
+    D2D1_COLOR_F bg, pane, card, cardHover, cardStroke, text, text2, disabled, accent, accentHover, onAccent, link,
         ctlFill, ctlHover, ctlStroke, ctlStrokeBottom, toggleOff, focus, popup, selFill, track;
     bool dark = false, contrast = false;
 };
@@ -107,6 +110,7 @@ public:
     bool PopupOpenFor(int i) const { return popup_.ctl == i; }
     std::wstring ValueText(int i) const;               // what the control shows ("80 %", "On", "Celsius")
     std::wstring UiaName(int i) const;
+    std::wstring ShownDesc(int i) const;               // the line under the label, as shown
     double SliderValue(int i) const;
     bool ToggleOn(int i) const;
     int CurrentPage() const { return page_; }
@@ -136,6 +140,8 @@ private:
     void LoadValues();
     void UpdateEnabled();
     std::wstring Effective(const Ctl& c, bool* overridden) const;
+    std::wstring Display(const Ctl& c, const std::wstring& v) const;   // a value as the control would show it
+    void FindOverrides(Ctl& c) const;
     void Write(int i, const std::wstring& v);
     void ResetOverride(int i);
     void WriteShowMonitor(int i, bool on);

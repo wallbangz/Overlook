@@ -129,16 +129,6 @@ bool AppsLight() {
     return v != 0;
 }
 
-// Windows' accent palette: 0 Light3, 1 Light2, 2 Light1, 3 accent, 4 Dark1, 5 Dark2, 6 Dark3.
-bool AccentShade(int idx, D2D1_COLOR_F& out) {
-    BYTE b[32]; DWORD cb = sizeof(b);
-    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Accent",
-                     L"AccentPalette", RRF_RT_REG_BINARY, nullptr, b, &cb) != ERROR_SUCCESS || cb < 32)
-        return false;
-    out = Rgb(b[idx * 4], b[idx * 4 + 1], b[idx * 4 + 2]);
-    return true;
-}
-
 }   // namespace
 
 // ================================================================== model
@@ -445,6 +435,7 @@ void Window::LoadValues() {
         }
         if (c.key.empty()) continue;
         c.value = Effective(c, &c.overridden);
+        FindOverrides(c);
         if (c.key == L"WeatherUnits") c.value = !c.value.empty() && towupper(c.value[0]) == L'F' ? L"F" : L"C";
         if (c.key == L"Color") c.value = NormalColor(c.value).empty() ? c.defValue : NormalColor(c.value);
         if (c.key == L"DateLocale") locale = c.value;
@@ -471,7 +462,8 @@ void Window::UpdateEnabled() {
         c.enabled = true;
         if (c.kind == Kind::Reset) {
             const Ctl& o = ctls[c.owner];
-            c.visible = scope_ > 0 && o.overridden;
+            c.visible = scope_ > 0 ? o.overridden : !o.elsewhere.empty();
+            c.label = scope_ > 0 ? L"Reset" : L"Use for all";
             continue;
         }
         if (c.appWide && scope_ > 0) c.enabled = false;
@@ -508,11 +500,13 @@ void Window::Write(int i, const std::wstring& v) {
 
 void Window::ResetOverride(int i) {
     const Ctl& o = ctls[ctls[i].owner];
-    if (scope_ == 0) return;
     IniDoc d;
     d.Load(iniPath_);
     BackupIniOnce(iniPath_);
-    if (d.Remove(scopes_[scope_].section, o.key) && d.Save(iniPath_)) {
+    bool removed = false;
+    if (scope_ > 0) removed = d.Remove(scopes_[scope_].section, o.key);
+    else for (auto& sec : o.elsewhereSections) removed |= d.Remove(sec, o.key);   // every monitor back on [Clock]
+    if (removed && d.Save(iniPath_)) {
         changed_ = true;
         if (host_.ctl) PostMessageW(host_.ctl, host_.reloadMsg, 0, 0);
     }
@@ -562,6 +556,61 @@ void Window::SetScope(int s) {
 
 // ================================================================== values for display and UIA
 
+std::wstring Window::Display(const Ctl& c, const std::wstring& v) const {
+    switch (c.kind) {
+    case Kind::Toggle: return ParseBool(v, ParseBool(c.defValue, false)) ? L"On" : L"Off";
+    case Kind::Slider: {
+        const double x = std::clamp(ParseNum(v, ParseNum(c.defValue, c.lo)), c.lo, c.hi);
+        return x == 0 && !c.zeroText.empty() ? c.zeroText : Fmt(x, c.decimals) + c.unit;
+    }
+    case Kind::Combo:
+        for (auto& o : c.options) if (_wcsicmp(o.value.c_str(), v.c_str()) == 0) return o.label;
+        return v;
+    case Kind::Color: case Kind::Edit: return c.key == L"Color" && !NormalColor(v).empty() ? NormalColor(v) : v;
+    default: return v;
+    }
+}
+
+// All monitors: the shown monitors whose own [Monitor ...] section sets this key, so a change
+// here doesn't reach them.
+void Window::FindOverrides(Ctl& c) const {
+    c.elsewhere.clear();
+    c.elsewhereSections.clear();
+    if (scope_ != 0 || c.appWide || c.key.empty() || !c.monitorId.empty() || c.kind == Kind::Edit && c.key == L"Color") return;
+    std::wstring names;
+    int count = 0;
+    std::wstring single;
+    for (auto& m : monitors_) {
+        std::wstring v;
+        bool has = false;
+        for (auto& sec : doc_.Sections()) {
+            if (sec.size() <= 8 || _wcsnicmp(sec.c_str(), L"Monitor ", 8) != 0) continue;
+            const int f = FindMonitor(allMons_, sec.substr(8));
+            if (f < 0 || allMons_[f].handle != m.mon.handle) continue;
+            std::wstring x;
+            if (doc_.Get(sec, c.key, x)) {
+                v = x;
+                has = true;
+                if (std::find(c.elsewhereSections.begin(), c.elsewhereSections.end(), sec) == c.elsewhereSections.end())
+                    c.elsewhereSections.push_back(sec);
+            }
+        }
+        if (!has) continue;
+        const std::wstring name = m.mon.name.empty() ? m.mon.device : m.mon.name;
+        names += (names.empty() ? L"" : L", ") + name;
+        single = Display(c, v);
+        ++count;
+    }
+    if (count == 1) c.elsewhere = names + L" keeps its own: " + single;
+    else if (count > 1) c.elsewhere = names + L" keep their own values";
+}
+
+std::wstring Window::ShownDesc(int i) const {
+    const Ctl& c = ctls[i];
+    if (c.appWide && scope_ > 0) return L"The same on every monitor";
+    return c.desc;
+}
+
 bool Window::ToggleOn(int i) const {
     const Ctl& c = ctls[i];
     return ParseBool(c.value, ParseBool(c.defValue, false));
@@ -591,7 +640,9 @@ std::wstring Window::ValueText(int i) const {
 
 std::wstring Window::UiaName(int i) const {
     const Ctl& c = ctls[i];
-    if (c.kind == Kind::Reset) return L"Reset " + ctls[c.owner].label + L" to the value for all monitors";
+    if (c.kind == Kind::Reset)
+        return scope_ > 0 ? L"Reset " + ctls[c.owner].label + L" to the value for all monitors"
+                          : L"Use the value for all monitors for " + ctls[c.owner].label;
     if (c.kind == Kind::Color) return c.label + L", " + c.value;
     return c.label;
 }
@@ -699,6 +750,7 @@ void Window::LoadTheme() {
         t.disabled = sys(COLOR_GRAYTEXT);
         t.accent = t.accentHover = t.selFill = sys(COLOR_HIGHLIGHT);
         t.onAccent = sys(COLOR_HIGHLIGHTTEXT);
+        t.link = sys(COLOR_HOTLIGHT);
         t.dark = GetRValue(GetSysColor(COLOR_WINDOW)) < 128;
         return;
     }
@@ -721,25 +773,10 @@ void Window::LoadTheme() {
         t.toggleOff = Rgb(96, 96, 96); t.focus = Rgb(27, 27, 27);
         t.popup = Rgb(249, 249, 249); t.selFill = Rgb(237, 237, 237); t.track = Rgb(139, 139, 139);
     }
-    // Windows' choice of accent shade (Light2 on dark, Dark1 on light), unless it doesn't stand out
-    // from the cards (a black or grey accent palette): then the next shade that does, else the text colour.
-    auto lum = [](const D2D1_COLOR_F& c) {
-        auto ch = [](float v) { return v <= 0.04045f ? v / 12.92f : std::pow((v + 0.055f) / 1.055f, 2.4f); };
-        return 0.2126f * ch(c.r) + 0.7152f * ch(c.g) + 0.0722f * ch(c.b);
-    };
-    auto contrast = [&](const D2D1_COLOR_F& a, const D2D1_COLOR_F& b) {
-        const float x = lum(a), y = lum(b);
-        return (std::max(x, y) + 0.05f) / (std::min(x, y) + 0.05f);
-    };
-    t.accent = t.dark ? Rgb(96, 205, 255) : Rgb(0, 95, 184);
-    bool found = false;
-    for (int idx : t.dark ? std::initializer_list<int>{ 1, 2, 0, 3 } : std::initializer_list<int>{ 4, 5, 3, 6 }) {
-        D2D1_COLOR_F c;
-        if (AccentShade(idx, c) && contrast(c, t.card) >= 3) { t.accent = c; found = true; break; }
-        if (idx == (t.dark ? 1 : 4) && !AccentShade(idx, c)) { found = true; break; }   // no palette: the default blue
-    }
-    if (!found) t.accent = t.text;
-    t.onAccent = lum(t.accent) > 0.3f ? Rgb(0, 0, 0) : Rgb(255, 255, 255);
+    // A vivid green accent, like macOS (Apple's system green; a darker one for link text on light cards).
+    t.accent = t.dark ? Rgb(48, 209, 88) : Rgb(52, 199, 89);
+    t.link = t.dark ? Rgb(48, 209, 88) : Rgb(36, 138, 61);
+    t.onAccent = Rgb(255, 255, 255);
     t.accentHover = t.accent;
     t.accentHover.a = 0.9f;
 }
@@ -887,7 +924,7 @@ void Window::LayoutPage(Page& p) {
             if (c.visible) {
                 switch (c.kind) {
                 case Kind::Toggle: w = 40; break;
-                case Kind::Slider: w = 220; break;
+                case Kind::Slider: w = 200; break;
                 case Kind::Edit: case Kind::EditCombo: w = c.boxWidth > 0 ? (float)c.boxWidth : 240; break;
                 case Kind::Combo: w = c.boxWidth > 0 ? (float)c.boxWidth : 200; break;
                 case Kind::Color: w = kCtlH; break;
@@ -905,12 +942,15 @@ void Window::LayoutPage(Page& p) {
         if (main.kind == Kind::Slider) ctlsW += 80;
         int labelOwner = it.ctls[0];
         for (int i : it.ctls) if (ctls[i].kind != Kind::Reset) { labelOwner = i; break; }
-        const Ctl& lc = ctls[labelOwner];
         const float textW = (x1 - x0) - 2 * kPad - ctlsW - 16;
-        const float descH = TextHeight(dw_.Get(), lc.desc, caption_.Get(), textW);
-        const float cardH = std::max(lc.desc.empty() ? 48.f : 62.f, 22 + 20 + descH);
+        const std::wstring shown = ShownDesc(labelOwner);
+        const float descH = TextHeight(dw_.Get(), shown, caption_.Get(), textW);
+        const std::wstring& ew = ctls[labelOwner].elsewhere;
+        it.extraH = ew.empty() ? 0 : TextHeight(dw_.Get(), ew, caption_.Get(), x1 - x0 - 2 * kPad) + 14;
+        const float topH = std::max(shown.empty() ? 48.f : 62.f, 22 + 20 + descH);
+        const float cardH = topH + it.extraH;
         const D2D1_RECT_F card{ x0, y, x1, y + cardH };
-        const float cy = y + cardH / 2;
+        const float cy = y + topH / 2;
         for (size_t k = it.ctls.size(); k-- > 0;) {
             Ctl& c = ctls[it.ctls[k]];
             c.card = card;
@@ -1001,8 +1041,15 @@ void Window::DrawContent() {
         const float textR = (ctls[it.ctls[0]].visible && !Empty(ctls[it.ctls[0]].box) ? ctls[it.ctls[0]].box.left : c.box.left) -
                             (c.kind == Kind::Toggle ? 48 : c.kind == Kind::Slider ? 88 : 16);
         const D2D1_COLOR_F tc = c.enabled ? t_.text : t_.disabled, dc = c.enabled ? t_.text2 : t_.disabled;
-        std::wstring desc = c.desc;
-        if (c.appWide && scope_ > 0) desc = L"The same on every monitor";
+        const std::wstring desc = ShownDesc(lc);
+        if (it.extraH > 0) {   // monitors that keep their own value, on a line under the row
+            const float ly = Snap(r.bottom - it.extraH);
+            brush_->SetColor(t_.cardStroke);
+            rt_->DrawLine({ r.left + kPad, ly + 0.5f / scale_ }, { r.right - kPad, ly + 0.5f / scale_ }, brush_.Get(), 1 / scale_);
+            DrawText(c.elsewhere, caption_.Get(), { r.left + kPad, ly + 2, r.right - kPad, r.bottom - 2 }, dc,
+                     DWRITE_TEXT_ALIGNMENT_LEADING, true);
+            r.bottom -= it.extraH;
+        }
         // Overridden in this monitor's section: an accent dot before the title.
         float tx = r.left + kPad;
         if (c.overridden && scope_ > 0 && !c.appWide) {
@@ -1143,7 +1190,7 @@ void Window::DrawCtl(int i, bool inContent) {
         break;
     }
     case Kind::Link: case Kind::Reset: {
-        D2D1_COLOR_F col = c.enabled ? t_.accent : t_.disabled;
+        D2D1_COLOR_F col = c.enabled ? t_.link : t_.disabled;
         if (hot && !t_.contrast) col.a = 0.8f;
         if (c.kind == Kind::Link) {
             const wchar_t ic[2] = { 0xE8A7, 0 };
@@ -1854,7 +1901,7 @@ bool Window::Create() {
     UINT dx = 96, dy = 96;
     GetDpiForMonitor(mon, MDT_EFFECTIVE_DPI, &dx, &dy);
     const RECT& wa = mi.rcWork;
-    RECT r{ 0, 0, MulDiv(920, dx, 96), MulDiv(720, dx, 96) };
+    RECT r{ 0, 0, MulDiv(1000, dx, 96), MulDiv(720, dx, 96) };
     AdjustWindowRectExForDpi(&r, WS_OVERLAPPEDWINDOW, FALSE, 0, dx);
     int w = r.right - r.left, h = r.bottom - r.top;
     const int screenH = mi.rcMonitor.bottom - mi.rcMonitor.top;
