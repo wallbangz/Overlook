@@ -1,0 +1,36 @@
+name: Release notes
+
+# When CHANGELOG.md changes on main, each published release gets its section of it as its notes,
+# so a correction to the changelog reaches the releases page too. A release with no section is left alone.
+on:
+  push:
+    branches: [main]
+    paths: [CHANGELOG.md]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  notes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Update release notes
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tags = gh release list --limit 100 --json tagName --jq '.[].tagName'
+          foreach ($tag in $tags) {
+            .github/scripts/changelog-section.ps1 -Version $tag -Out notes.md 2>$null
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path notes.md)) { "No CHANGELOG section for $tag"; continue }
+            $prev = gh release view $tag --json body --jq '.body'
+            # Keep GitHub's "Full Changelog" link at the end.
+            $link = ($prev -split "`n" | Where-Object { $_ -match '^\*\*Full Changelog\*\*' }) -join "`n"
+            if ($link) { Add-Content notes.md "`n$link" }
+            gh release edit $tag --notes-file notes.md
+            "Updated $tag"
+            Remove-Item notes.md
+          }

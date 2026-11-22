@@ -27,7 +27,7 @@ Overlook is new. If you try it, please [tell me how it went](#feedback).
 
 ## Install
 
-1. Download `Overlook.zip` from [Releases](../../releases) and unzip it to a folder you'll keep, e.g. `%LOCALAPPDATA%\Overlook`.
+1. Download `Overlook.zip` from [Releases](../../releases) and unzip it to a folder you'll keep, e.g. `%LOCALAPPDATA%\Overlook`. What's new in each version: [CHANGELOG.md](CHANGELOG.md).
 2. Run `Overlook.exe`. It isn't code-signed yet, so Windows SmartScreen may warn the first time: choose **More info**, then **Run anyway**.
 3. To start it with Windows, tick **Start with Windows** in its tray menu.
 

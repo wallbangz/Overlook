@@ -32,9 +32,15 @@ jobs:
           name: Overlook
           path: Overlook.zip
 
+      - name: Release notes from CHANGELOG.md
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: .github/scripts/changelog-section.ps1 -Version '${{ github.ref_name }}' -Out release-notes.md
+
       - name: Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v3
         with:
           files: Overlook.zip
+          body_path: release-notes.md
           generate_release_notes: true
