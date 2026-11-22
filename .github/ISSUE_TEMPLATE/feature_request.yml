@@ -1,0 +1,41 @@
+name: Feature request
+description: An idea to make Overlook better
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: Small tweaks and big ideas are both welcome. Please check the open issues first, in case someone already asked.
+  - type: textarea
+    id: what
+    attributes:
+      label: What would you like Overlook to do?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it would help you
+      description: The situation where you'd use it. This helps choose the simplest way to build it.
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of Overlook?
+      options:
+        - Time and date
+        - Weather
+        - Now playing
+        - Look and colour
+        - Several monitors
+        - Settings
+        - Something new
+    validations:
+      required: false
+  - type: textarea
+    id: elsewhere
+    attributes:
+      label: Anything you've seen elsewhere that does it well?
+      description: A screenshot or link helps.
+    validations:
+      required: false

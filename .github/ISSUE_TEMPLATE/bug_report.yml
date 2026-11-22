@@ -1,0 +1,68 @@
+name: Something looks wrong
+description: The clock misbehaves, looks off, or doesn't start
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for trying Overlook. A screenshot and your display setup usually tell me most of what I need.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you saw, and what you were doing when it happened (changing the wallpaper, waking the PC, plugging in a monitor, ...).
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: false
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot or recording
+      description: If it's visual, drag an image or a short video here.
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: Overlook version
+      description: The release you downloaded, or the commit if you built it yourself.
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      description: Settings → System → About.
+      placeholder: Windows 11 24H2
+    validations:
+      required: true
+  - type: textarea
+    id: monitors
+    attributes:
+      label: Monitors and display scaling
+      description: One line per monitor. Say which one shows the problem.
+      placeholder: |
+        Primary: 2560×1440 at 125%
+        Second: 3840×2160 at 200%
+    validations:
+      required: true
+  - type: textarea
+    id: settings
+    attributes:
+      label: Settings you changed
+      description: The lines you changed in `Overlook.ini`, if any.
+      render: ini
+    validations:
+      required: false
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Optional. Set `Log=1` in `Overlook.ini`, reproduce the problem, then attach `Overlook.log`. Read it first, because it lists your wallpaper file names and track titles.
+    validations:
+      required: false
