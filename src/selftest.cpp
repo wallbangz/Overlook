@@ -608,7 +608,7 @@ int RunWeatherTest(const std::wstring& outDirArg) {
             }
         }
         std::wstring rep = Fmt(L"Centring self-test: each line's ink box against the centre line, in physical pixels (+ = right).\r\n"
-                               L"120 DPI = the OLED (125%%), 192 DPI = the 4K (200%%). Over %.1f px = UNEXPECTED.\r\n\r\n", kTol);
+                               L"120 DPI = 125%% scaling, 192 DPI = 200%%. Over %.1f px = UNEXPECTED.\r\n\r\n", kTol);
         for (const Check& c : checks) {
             rep += Fmt(L"%s: %d checked, worst %+.2f (%s)%s", c.what.c_str(), c.n, c.worst, c.worstAt.c_str(), c.note.c_str());
             rep += c.bad ? Fmt(L"  UNEXPECTED: %d over %.1f:%s\r\n", c.bad, kTol, c.badList.c_str()) : std::wstring(L"  OK\r\n");

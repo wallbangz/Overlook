@@ -21,5 +21,9 @@ struct NowPlaying {
 bool MediaWatchStart(HWND notify, UINT msg);
 void MediaWatchStop();
 
+// Which apps count, by part of their app id, comma separated ("Spotify, Apple Music"; spaces and
+// case are ignored); "all" = every app, browsers and video players included. Thread-safe.
+void MediaSetApps(const std::wstring& list);
+
 // Latest snapshot (thread-safe).
 bool MediaLatest(NowPlaying& out);

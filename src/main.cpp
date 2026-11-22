@@ -142,6 +142,7 @@ void Refresh(bool animate = false);
 bool g_mediaOn;   // the media watcher runs (some shown clock has NowPlaying=1)
 
 void UpdateMediaWatch() {
+    MediaSetApps(g_s.nowPlayingApps);
     const bool want = AnyClockWants(&Settings::nowPlaying);
     if (want && !g_mediaOn) {
         g_mediaOn = MediaWatchStart(g_ctl, WM_APP_MEDIA);

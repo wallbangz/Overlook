@@ -6,14 +6,14 @@
 // All sizes are in DIPs (1 DIP = 1/96 inch; scaled by the target monitor's DPI).
 struct Settings {
     // Placement
-    std::wstring monitor = L"top";   // all, or a comma list of: primary | top | bottom | left | right | <index> | \\.\DISPLAYn | <name substring>
-    double verticalPos   = 17.0;     // % of monitor height where the centre of the date+time block sits
+    std::wstring monitor = L"all";   // all, or a comma list of: primary | top | bottom | left | right | <index> | \\.\DISPLAYn | <name substring>
+    double verticalPos   = 16.5;     // % of monitor height where the centre of the date+time block sits
     double horizontalOffset = 0.0;   // DIPs, + moves right
 
     // Sizes
-    double timeSize      = 126.0;    // DIPs (font em size)
-    double dateSize      = 28.0;     // DIPs
-    double gap           = 22.0;     // DIPs between date baseline and top of the time digits
+    double timeSize      = 145.0;    // DIPs (font em size)
+    double dateSize      = 32.0;     // DIPs
+    double gap           = 25.0;     // DIPs between date baseline and top of the time digits
     double timeTracking  = -2.0;     // letter spacing, % of em (negative = tighter)
     double dateTracking  = 0.0;
 
@@ -48,11 +48,14 @@ struct Settings {
 
     // Now-playing line under the weather (Windows' media controls: Spotify, browsers...)
     bool   nowPlaying    = true;
+    // App-wide: the media apps the line listens to (see MediaSetApps); "all" = every app
+    std::wstring nowPlayingApps = L"Spotify, Apple Music, iTunes, TIDAL, Deezer, Amazon Music, Qobuz, YouTube Music, "
+                                  L"Pandora, foobar2000, MusicBee, AIMP, Winamp, Plexamp, Cider";
     double nowPlayingLinger = 60.0;  // seconds the line stays after playback pauses
     double nowPlayingPausedOpacity = 50.0;   // % of the text's opacity while paused
-    double secondaryOpacity = 100.0;  // weather and now-playing lines, % of opacity
-    double weatherSize   = 24.0;     // DIPs
-    double weatherGap    = 30.0;     // DIPs between the time baseline and the top of the weather line's capitals
+    double secondaryOpacity = 70.0;   // weather and now-playing lines, % of opacity
+    double weatherSize   = 28.0;     // DIPs
+    double weatherGap    = 35.0;     // DIPs between the time baseline and the top of the weather line's capitals
     double rainThreshold = 30.0;     // show the chance of rain when it reaches this % ...
     double rainHours     = 6.0;      // ... within this many hours
 

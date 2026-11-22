@@ -8,7 +8,10 @@
 #include <winrt/Windows.Media.Control.h>
 #pragma warning(pop)
 
+#include <atomic>
+#include <cwctype>
 #include <mutex>
+#include <vector>
 #include <thread>
 
 namespace wmc = winrt::Windows::Media::Control;
@@ -27,44 +30,80 @@ bool g_started = false;
 
 // Worker-thread-only state.
 wmc::GlobalSystemMediaTransportControlsSessionManager g_mgr{ nullptr };
-wmc::GlobalSystemMediaTransportControlsSession g_sess{ nullptr };
-winrt::event_token g_tokCurrent{}, g_tokSessions{}, g_tokProps{}, g_tokPlayback{};
+winrt::event_token g_tokCurrent{}, g_tokSessions{};
+// Every session is watched, not just Windows' "current" one: a music app paused behind a video
+// that is playing in a browser is still found.
+struct Watched {
+    wmc::GlobalSystemMediaTransportControlsSession s{ nullptr };
+    winrt::event_token props{}, playback{};
+};
+std::vector<Watched> g_watched;
+std::atomic<bool> g_resubscribe{ true };   // the list of sessions changed
+
+std::vector<std::wstring> g_apps;   // NowPlayingApps, squashed (empty = every app); under g_mu
+
+std::wstring Squash(const std::wstring& v) {   // lower case, without spaces: "Apple Music" ~ "AppleMusicWin"
+    std::wstring out;
+    for (wchar_t ch : v) if (!iswspace(ch)) out += (wchar_t)towlower(ch);
+    return out;
+}
+
+bool Allowed(const std::wstring& app) {
+    std::lock_guard<std::mutex> lk(g_mu);
+    if (g_apps.empty()) return true;
+    const std::wstring a = Squash(app);
+    for (const auto& k : g_apps) if (a.find(k) != std::wstring::npos) return true;
+    return false;
+}
 
 void Poke() {
     if (g_refreshEvt) SetEvent(g_refreshEvt);
 }
 
 void Unsubscribe() {
-    if (g_sess) {
+    for (auto& w : g_watched) {
         try {
-            g_sess.MediaPropertiesChanged(g_tokProps);
-            g_sess.PlaybackInfoChanged(g_tokPlayback);
+            w.s.MediaPropertiesChanged(w.props);
+            w.s.PlaybackInfoChanged(w.playback);
         } catch (...) {}
-        g_sess = nullptr;
     }
-    g_tokProps = {};
-    g_tokPlayback = {};
+    g_watched.clear();
+}
+
+void WatchSessions() {
+    Unsubscribe();
+    for (const auto& s : g_mgr.GetSessions()) {
+        Watched w;
+        w.s = s;
+        w.props = s.MediaPropertiesChanged([](auto&&, auto&&) { Poke(); });
+        w.playback = s.PlaybackInfoChanged([](auto&&, auto&&) { Poke(); });
+        g_watched.push_back(std::move(w));
+    }
 }
 
 void Refresh() {
     NowPlaying n;
     try {
-        auto cur = g_mgr.GetCurrentSession();
-        if (!(cur == g_sess)) {
-            Unsubscribe();
-            g_sess = cur;
-            if (g_sess) {
-                g_tokProps = g_sess.MediaPropertiesChanged([](auto&&, auto&&) { Poke(); });
-                g_tokPlayback = g_sess.PlaybackInfoChanged([](auto&&, auto&&) { Poke(); });
-            }
-        }
-        if (g_sess) {
-            n.app = g_sess.SourceAppUserModelId().c_str();
+        if (g_resubscribe.exchange(false)) WatchSessions();
+        // Among the allowed apps: one that is playing, else a paused one; Windows' current
+        // session wins a tie.
+        const auto cur = g_mgr.GetCurrentSession();
+        wmc::GlobalSystemMediaTransportControlsSession best{ nullptr };
+        int bestScore = -1;
+        bool bestPlaying = false;
+        for (const auto& w : g_watched) {
             try {
-                n.playing = g_sess.GetPlaybackInfo().PlaybackStatus() ==
-                            wmc::GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing;
-            } catch (...) {}
-            auto props = g_sess.TryGetMediaPropertiesAsync().get(); // worker thread (MTA): safe
+                if (!Allowed(w.s.SourceAppUserModelId().c_str())) continue;
+                const bool playing = w.s.GetPlaybackInfo().PlaybackStatus() ==
+                                     wmc::GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing;
+                const int score = (playing ? 2 : 0) + (w.s == cur ? 1 : 0);
+                if (score > bestScore) { bestScore = score; best = w.s; bestPlaying = playing; }
+            } catch (...) {}   // a session closing right now
+        }
+        if (best) {
+            n.app = best.SourceAppUserModelId().c_str();
+            n.playing = bestPlaying;
+            auto props = best.TryGetMediaPropertiesAsync().get(); // worker thread (MTA): safe
             if (props) {
                 n.title = props.Title().c_str();
                 n.artist = props.Artist().c_str();
@@ -99,7 +138,7 @@ void Refresh() {
             Log(L"media: %s %s '%s - %s'", n.app.c_str(), n.playing ? L"playing" : L"paused",
                 n.artist.c_str(), n.title.c_str());
         else
-            Log(L"media: nothing active");
+            Log(L"media: nothing active (from the allowed apps)");
         if (g_notify) PostMessageW(g_notify, g_msg, 0, 0);
     }
 }
@@ -119,7 +158,7 @@ bool Connect() {
                 if (StopRequested(500)) { op.Cancel(); return false; }   // up to 10 s
             if (op.Status() == winrt::Windows::Foundation::AsyncStatus::Completed && (g_mgr = op.GetResults())) {
                 g_tokCurrent = g_mgr.CurrentSessionChanged([](auto&&, auto&&) { Poke(); });
-                g_tokSessions = g_mgr.SessionsChanged([](auto&&, auto&&) { Poke(); });
+                g_tokSessions = g_mgr.SessionsChanged([](auto&&, auto&&) { g_resubscribe = true; Poke(); });
                 if (attempt) Log(L"media: connected on try %d", attempt + 1);
                 return true;
             }
@@ -160,7 +199,7 @@ void Worker() {
         } catch (...) {}
     }
     g_mgr = nullptr;
-    g_sess = nullptr;
+    g_resubscribe = true;
     try { winrt::uninit_apartment(); } catch (...) {}
 }
 
@@ -194,6 +233,27 @@ void MediaWatchStop() {
     g_notify = nullptr;
     std::lock_guard<std::mutex> lk(g_mu);
     g_snap = NowPlaying{};
+}
+
+void MediaSetApps(const std::wstring& list) {
+    std::vector<std::wstring> apps;
+    std::wstring cur;
+    for (wchar_t ch : list + L",") {
+        if (ch == L',' || ch == L';') {
+            cur = Squash(cur);
+            if (cur == L"all" || cur == L"*") { apps.clear(); break; }
+            if (!cur.empty()) apps.push_back(cur);
+            cur.clear();
+        } else {
+            cur += ch;
+        }
+    }
+    {
+        std::lock_guard<std::mutex> lk(g_mu);
+        if (apps == g_apps) return;
+        g_apps = std::move(apps);
+    }
+    Poke();   // pick again with the new list
 }
 
 bool MediaLatest(NowPlaying& out) {
