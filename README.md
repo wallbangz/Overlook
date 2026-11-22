@@ -35,22 +35,24 @@ Needs Windows 11 (x64). To remove it, choose **Exit** in the tray menu and delet
 
 ## Settings
 
-Right-click the tray icon and choose **Settings…**. The window covers the common settings (clock, look, weather, now playing, monitors, plus an About page with the version) and every change shows on the clock straight away; **Undo changes** puts things back as they were when you opened it. Pick a monitor under **Settings for** to give it its own values.
+Right-click the tray icon and choose **Settings…**. Every change shows on the clock straight away.
 
-Everything is stored in `Overlook.ini` next to the exe, which the window edits in place, keeping your comments. **Edit settings file…** in the tray menu opens it for the rest; changes apply as soon as you save. The ones you'll most likely want:
+![The settings window on its Look page: vertical position, time and date size, text colour, auto-contrast, tint and opacity](docs/settings.png)
 
-| Setting | What it does | Default |
-|---|---|---|
-| `Monitor` | Which monitors get a clock: `all`, `primary`, `top`, `2`, … | `all` |
-| `VerticalPosition` | Height on screen, % from the top | `16.5` |
-| `TimeSize`, `DateSize` | Text sizes | `145`, `32` |
-| `Opacity`, `Tint` | Text opacity, and how much it takes the wallpaper's colour | `80`, `35` |
-| `Hour24`, `DateFormat` | 12 or 24-hour time, date layout | `1`, `dddd, MMMM d` |
-| `WeatherCity`, `WeatherUnits` | Your city (empty = no weather), `C` or `F` | empty, `C` |
-| `NowPlaying`, `NowPlayingApps` | The now-playing line, and which apps it listens to | on, music apps |
-| `PixelShift`, `NightDim` | OLED care | off |
+| Page | What you can change |
+|---|---|
+| **Clock** | 24-hour or 12-hour time with AM/PM, leading zero, date format and language (with a preview of today), Start with Windows |
+| **Look** | Vertical position, time and date size, text colour, auto-contrast (dark text on bright wallpapers), tint, opacity, the weather and now-playing lines' opacity, shadow, the minute transition |
+| **Weather** | The weather line on or off, your city, °C or °F, and the extras: chance of rain, feels like, wind, UV, air quality, sunrise and sunset |
+| **Now playing** | The now-playing line on or off, which apps it listens to, how long it stays after you pause |
+| **Monitors** | Which monitors show a clock, OLED care (pixel shift, night dimming and its opacity) |
+| **About** | Version, links to the source, releases and issues, credits |
 
-Any setting can be different on one monitor:
+- **One monitor at a time:** pick a monitor under **Settings for** to give it its own values. A setting a monitor overrides gets a dot and a **Reset** link; under *All monitors* the window tells you which monitor keeps its own value.
+- **Undo changes** puts everything back as it was when you opened the window.
+- It follows Windows' light and dark mode and high contrast, works from the keyboard, and works with screen readers.
+
+Everything is stored in `Overlook.ini` next to the exe. The window edits it in place and keeps your comments. For the less common settings (gaps, letter spacing, shadow detail, thresholds, OpenType features), choose **Edit settings file…** in the tray menu; changes apply as soon as you save. Any setting can be different on one monitor:
 
 ```ini
 [Monitor primary]
