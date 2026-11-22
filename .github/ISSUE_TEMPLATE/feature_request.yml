@@ -1,6 +1,7 @@
 name: Feature request
 description: An idea to make Overlook better
 labels: [enhancement]
+assignees: [wallbangz]
 body:
   - type: markdown
     attributes:

@@ -1,6 +1,7 @@
 name: Something looks wrong
 description: The clock misbehaves, looks off, or doesn't start
 labels: [bug]
+assignees: [wallbangz]
 body:
   - type: markdown
     attributes:
