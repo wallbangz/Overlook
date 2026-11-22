@@ -28,7 +28,7 @@ enum class Kind {
     Reset,      // "Reset": removes a monitor's override
 };
 
-enum Action { kNone, kUndo, kOpenIni, kAppsDefault, kScope };
+enum Action { kNone, kUndo, kOpenIni, kAppsDefault, kScope, kUrl, kOpenFolder };
 
 struct Option { std::wstring value, label; };
 
@@ -50,6 +50,7 @@ struct Ctl {
     double boxWidth = 0;          // DIPs, 0 = the kind's default
     // Button, Link
     Action action = kNone;
+    std::wstring url;             // kUrl: what it opens
     int owner = -1;               // Reset: index of the setting it resets
     std::wstring monitorId;       // Monitors page: a clock's on/off (HiddenMonitors)
 
@@ -65,7 +66,7 @@ struct Ctl {
 };
 
 // One line of a page: a section header or a row of controls (left to right; the first one owns the label).
-enum Note { kStatic, kCityEmpty, kMonitorSpec };
+enum Note { kStatic, kCityEmpty, kMonitorSpec, kAbout };
 
 struct Item {
     std::wstring header, note;    // header text, or a note line

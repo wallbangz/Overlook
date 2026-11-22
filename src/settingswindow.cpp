@@ -4,6 +4,10 @@
 // which keeps comments and the user's own values, and applied through the clock's usual reload.
 #include "settingsui.h"
 #include "settings.h"
+#include "../res/resource.h"
+#define OVERLOOK_WIDEN2(s) L##s
+#define OVERLOOK_WIDEN(s) OVERLOOK_WIDEN2(s)
+#define OVERLOOK_VERSION_W OVERLOOK_WIDEN(OVERLOOK_VERSION_STR)
 #include <windowsx.h>
 #include <dwmapi.h>
 #include <commdlg.h>
@@ -181,7 +185,7 @@ void Window::BuildControls() {
         const int s = add(Kind::Combo, -1, L"", L"Settings for", L"", L"0");
         ctls[s].action = kScope;
         static const struct { const wchar_t* name; wchar_t icon; } kPages[] = {
-            { L"Clock", 0xE121 }, { L"Look", 0xE790 }, { L"Weather", 0xE753 }, { L"Now playing", 0xEC4F }, { L"Monitors", 0xE7F4 },
+            { L"Clock", 0xE121 }, { L"Look", 0xE790 }, { L"Weather", 0xE753 }, { L"Now playing", 0xEC4F }, { L"Monitors", 0xE7F4 }, { L"About", 0xE946 },
         };
         for (int p = 0; p < (int)ARRAYSIZE(kPages); ++p) {
             Page pg; pg.name = kPages[p].name; pg.icon = kPages[p].icon;
@@ -322,6 +326,29 @@ void Window::BuildControls() {
         ctls[n].dependsOn = L"NightDim";
         row({ n });
     }
+
+    // About
+    note(5, L"", kAbout);
+    auto link = [&](const wchar_t* label, const wchar_t* desc, const wchar_t* text, Action a, const std::wstring& url) {
+        const int i = add(Kind::Link, 5, L"", text, L"", L"");
+        ctls[i].action = a;
+        ctls[i].url = url;
+        Item it;
+        const int t = add(Kind::Link, -3, L"", label, desc, L"");   // the row's label (never shown on its own)
+        ctls[t].visible = false;
+        it.ctls = { t, i };
+        pages_[5].items.push_back(it);
+        return i;
+    };
+    const std::wstring repo = L"https://github.com/wallbangz/Overlook";
+    link(L"Source code", L"Free and open source, MIT licence", L"GitHub", kUrl, repo);
+    link(L"Updates", L"Download the latest version", L"Releases", kUrl, repo + L"/releases");
+    link(L"Report a problem", L"Or suggest an idea", L"Open an issue", kUrl, repo + L"/issues/new/choose");
+    header(5, L"Credits");
+    link(L"Weather", L"Data by Open-Meteo.com, CC BY 4.0", L"open-meteo.com", kUrl, L"https://open-meteo.com");
+    link(L"Font", L"Inter Display by Rasmus Andersson, SIL Open Font License 1.1", L"rsms.me/inter", kUrl, L"https://rsms.me/inter/");
+    header(5, L"Files");
+    link(L"Settings and logs", ExeDir().c_str(), L"Open folder", kOpenFolder, L"");
 }
 
 // One on/off row per monitor of the Monitor= set, after the "Clocks" header and its note. Rows
@@ -912,6 +939,12 @@ void Window::LayoutPage(Page& p) {
                 if (!spec.empty() && _wcsicmp(spec.c_str(), L"all") != 0)
                     text += L" Monitor=" + spec + L" in Overlook.ini picks which monitors are listed.";
             }
+            if (it.noteKind == kAbout) {   // name, version and what it is
+                it.rc = { x0 + 2, y, x1, y + 92 };
+                y += 92 + 8;
+                first = false;
+                continue;
+            }
             it.note = it.noteKind == kStatic ? it.note : text;
             if (text.empty()) continue;
             const float th = TextHeight(dw_.Get(), text, caption_.Get(), x1 - x0 - 4);
@@ -936,6 +969,7 @@ void Window::LayoutPage(Page& p) {
                 case Kind::Color: w = kCtlH; break;
                 case Kind::Button: w = TextWidth(c.label, body_.Get()) + 24; break;
                 case Kind::Reset: w = TextWidth(c.label, body_.Get()) + 16; break;
+                case Kind::Link: w = TextWidth(c.label, body_.Get()) + 30; break;
                 default: break;
                 }
             }
@@ -1037,6 +1071,13 @@ void Window::DrawContent() {
         D2D1_RECT_F r = it.rc; r.top += dy; r.bottom += dy;
         if (r.bottom < cr.top || r.top > cr.bottom) continue;
         if (!it.header.empty()) { DrawText(it.header, strong_.Get(), r, t_.text); continue; }
+        if (it.noteKind == kAbout) {
+            DrawText(L"Overlook", title_.Get(), { r.left, r.top, r.right, r.top + 40 }, t_.text);
+            DrawText(L"Version " OVERLOOK_VERSION_W, body_.Get(), { r.left, r.top + 42, r.right, r.top + 62 }, t_.text2);
+            DrawText(L"A macOS lock-screen style clock that lives on the Windows desktop.", body_.Get(),
+                     { r.left, r.top + 66, r.right, r.top + 86 }, t_.text);
+            continue;
+        }
         if (it.ctls.empty()) { DrawText(it.note, caption_.Get(), r, t_.text2, DWRITE_TEXT_ALIGNMENT_LEADING, false); continue; }
         int lc = it.ctls[0];
         for (int i : it.ctls) if (ctls[i].kind != Kind::Reset) { lc = i; break; }
@@ -1044,8 +1085,10 @@ void Window::DrawContent() {
         const bool rowHot = c.kind == Kind::Toggle && hot_ == lc && c.enabled;
         FillRound(r, 4, rowHot ? t_.cardHover : t_.card);
         StrokeRound(r, 4, t_.cardStroke);
-        const float textR = (ctls[it.ctls[0]].visible && !Empty(ctls[it.ctls[0]].box) ? ctls[it.ctls[0]].box.left : c.box.left) -
-                            (c.kind == Kind::Toggle ? 48 : c.kind == Kind::Slider ? 88 : 16);
+        float boxL = r.right - kPad;   // the leftmost control in the row
+        for (int i : it.ctls) if (ctls[i].visible && !Empty(ctls[i].box)) boxL = std::min(boxL, ctls[i].box.left);
+        const Kind mk = ctls[it.ctls.back()].kind;
+        const float textR = boxL - (mk == Kind::Toggle ? 48 : mk == Kind::Slider ? 88 : 16);
         const D2D1_COLOR_F tc = c.enabled ? t_.text : t_.disabled, dc = c.enabled ? t_.text2 : t_.disabled;
         const std::wstring desc = ShownDesc(lc);
         if (it.extraH > 0) {   // monitors that keep their own value, on a line under the row
@@ -1307,6 +1350,8 @@ void Window::Activate(int i) {
     case Kind::Button: case Kind::Link:
         if (c.action == kUndo) Undo();
         else if (c.action == kOpenIni) ShellExecuteW(hwnd, L"open", iniPath_.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        else if (c.action == kUrl) ShellExecuteW(hwnd, L"open", c.url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        else if (c.action == kOpenFolder) ShellExecuteW(hwnd, L"open", ExeDir().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         else if (c.action == kAppsDefault)
             for (size_t j = 0; j < ctls.size(); ++j) if (ctls[j].key == L"NowPlayingApps") Write((int)j, kDefaultApps);
         break;
