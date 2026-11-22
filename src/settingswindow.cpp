@@ -1140,12 +1140,14 @@ void Window::DrawCtl(int i, bool inContent) {
     switch (c.kind) {
     case Kind::NavItem: {
         const bool sel = c.owner == page_;
+        // High contrast: the selected page in the highlight colours, a plain outline on hover.
         if (sel || hot) FillRound(r, 4, sel ? t_.selFill : t_.ctlHover);
-        if (sel) FillRound({ r.left, cy - 8, r.left + 3, cy + 8 }, 1.5f, t_.accent);
-        if (t_.contrast && sel) StrokeRound(r, 4, t_.text);
+        if (sel) FillRound({ r.left, cy - 8, r.left + 3, cy + 8 }, 1.5f, t_.contrast ? t_.onAccent : t_.accent);
+        if (t_.contrast && hot && !sel) StrokeRound(r, 4, t_.text);
+        const D2D1_COLOR_F nc = t_.contrast && sel ? t_.onAccent : t_.text;
         wchar_t ic[2] = { pages_[c.owner].icon, 0 };
-        DrawText(ic, icon_.Get(), { r.left + 14, r.top, r.left + 34, r.bottom }, t_.text);
-        DrawText(c.label, body_.Get(), { r.left + 46, r.top, r.right - 8, r.bottom }, t_.text);
+        DrawText(ic, icon_.Get(), { r.left + 14, r.top, r.left + 34, r.bottom }, nc);
+        DrawText(c.label, body_.Get(), { r.left + 46, r.top, r.right - 8, r.bottom }, nc);
         if (focused) FocusRing(r, 4);
         break;
     }
@@ -1188,7 +1190,7 @@ void Window::DrawCtl(int i, bool inContent) {
         if (on) {
             FillRound(sw, 10, c.enabled ? t_.accent : t_.disabled);
             if (rowHot && !t_.contrast) FillRound(sw, 10, t_.dark ? Rgb(255, 255, 255, 0.08f) : Rgb(0, 0, 0, 0.08f));
-            brush_->SetColor(t_.contrast ? t_.onAccent : t_.onAccent);
+            brush_->SetColor(t_.onAccent);
             const float k = rowHot ? 7.f : 6.f;
             rt_->FillEllipse(D2D1::Ellipse({ sw.right - 10, cy }, k, k), brush_.Get());
         } else {
@@ -1220,7 +1222,7 @@ void Window::DrawCtl(int i, bool inContent) {
     }
     case Kind::Color: {
         FillRound(r, 4, FromRef(ParseColor(c.value, RGB(255, 255, 255))));
-        StrokeRound(r, 4, hot ? t_.text2 : t_.dark ? Rgb(120, 120, 120) : Rgb(160, 160, 160));
+        StrokeRound(r, 4, t_.contrast || hot ? t_.text2 : t_.dark ? Rgb(120, 120, 120) : Rgb(160, 160, 160));
         if (focused) FocusRing(r, 4);
         break;
     }
@@ -1274,12 +1276,15 @@ void Window::DrawPopup() {
     for (size_t o = 0; o < c.options.size(); ++o) {
         const D2D1_RECT_F it{ r.left + 4, r.top + 4 + o * popup_.itemH, r.right - 4, r.top + 4 + (o + 1) * popup_.itemH };
         const bool sel = (int)o == popup_.sel, hot = (int)o == popup_.hot;
-        if (hot || sel) FillRound(Inflate(it, 0, -1), 4, hot && t_.contrast ? t_.accent : t_.selFill);
-        if (sel) FillRound({ it.left, (it.top + it.bottom) / 2 - 8, it.left + 3, (it.top + it.bottom) / 2 + 8 }, 1.5f, t_.accent);
-        const D2D1_COLOR_F tc = hot && t_.contrast ? t_.onAccent : t_.text;
+        // High contrast: hot and selected items in the highlight colours (selFill is the highlight there too).
+        const bool lit = (hot || sel) && t_.contrast;
+        if (hot || sel) FillRound(Inflate(it, 0, -1), 4, lit ? t_.accent : t_.selFill);
+        if (sel) FillRound({ it.left, (it.top + it.bottom) / 2 - 8, it.left + 3, (it.top + it.bottom) / 2 + 8 }, 1.5f,
+                           lit ? t_.onAccent : t_.accent);
+        const D2D1_COLOR_F tc = lit ? t_.onAccent : t_.text;
         const std::wstring& label = c.options[o].label.empty() ? c.options[o].value : c.options[o].label;
         if (c.kind == Kind::EditCombo) {
-            DrawText(c.options[o].value, caption_.Get(), { it.left + 12, it.top, it.right - 12, it.bottom }, hot && t_.contrast ? tc : t_.text2,
+            DrawText(c.options[o].value, caption_.Get(), { it.left + 12, it.top, it.right - 12, it.bottom }, lit ? tc : t_.text2,
                      DWRITE_TEXT_ALIGNMENT_TRAILING);
             DrawText(label, body_.Get(), { it.left + 12, it.top, it.right - 120, it.bottom }, tc);
         } else {
