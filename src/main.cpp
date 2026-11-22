@@ -46,6 +46,15 @@ UINT g_styleGen;          // bumped on every settings load: part of each frame's
 // Paused while every display is off or the session is locked: nothing is visible, so the
 // minute timer stops and anything that changed is drawn once on the way back.
 bool g_displayOff, g_locked, g_weatherDue;
+
+// Wallpaper changes: Windows crossfades a new wallpaper in over about 1.2 s from the moment its
+// new wallpaper layer (WorkerW) appears. The clock starts its colour fade as soon as Windows
+// reports the new image and times it to end with Windows' fade.
+const ULONGLONG kWallpaperFadeMs = 1200;
+ULONGLONG g_wallChangeAt;               // GetTickCount64() of the change being followed, 0 = none
+std::vector<std::wstring> g_wallSeen;   // per clock: the image the colour was last checked against
+double g_fadeMs;                        // > 0: the duration of the transitions being started
+double FadeMs(const Settings& s) { return g_fadeMs > 0 ? g_fadeMs : s.transitionMs; }
 HPOWERNOTIFY g_powerNotify;
 bool Paused() { return g_displayOff || g_locked; }
 // GUID_CONSOLE_DISPLAY_STATE (all console displays: 0 off, 1 on, 2 dimmed)
@@ -373,6 +382,20 @@ void StopAnimation(Clock& c) {
     c.animating = false;
 }
 
+// True if any clock's monitor now shows a different wallpaper image than when last asked.
+bool WallpaperChanged() {
+    bool changed = false;
+    g_wallSeen.resize(g_clocks.size());
+    for (size_t i = 0; i < g_clocks.size(); ++i) {
+        std::wstring path;
+        int position = 0;
+        COLORREF bg = 0;
+        if (!WallpaperFile(g_clocks[i]->mon.rc, path, position, bg)) continue;
+        if (path != g_wallSeen[i]) { g_wallSeen[i] = path; changed = true; }
+    }
+    return changed;
+}
+
 bool AnyAnimating() {
     for (auto& c : g_clocks) if (c->animating) return true;
     return false;
@@ -462,7 +485,7 @@ bool StartTransition(Clock& c, const Shown& from) {
             layers.push_back({ AL::Solid, bmp.Get(), sx, (float)o.y, (float)n.x, (float)n.y });
         }
     }
-    return g_r.Animate(c.hwnd, layers.data(), (int)layers.size(), c.s.transitionMs / 1000.0, to.lay.opacity / 100.0);
+    return g_r.Animate(c.hwnd, layers.data(), (int)layers.size(), FadeMs(c.s) / 1000.0, to.lay.opacity / 100.0);
 }
 
 // animate: transition from the frame on screen if the text or colour changed.
@@ -543,9 +566,10 @@ void Render(size_t i, bool animate) {
     f.weatherKey = weather + col;
     f.mediaKey = media + col + (mediaPaused ? L"|paused" : L"");
     f.key = f.dateKey + L"|" + time + L"|" + weather + L"|" + f.mediaKey;   // (mediaKey carries the paused state)
-    // Same text, colour, style and place as what is on screen (e.g. a settings broadcast on
-    // unlock): nothing to draw, just keep the slot.
-    if (!c.animating && c.cur.bmp && c.cur.hwnd == c.hwnd && c.cur.key == f.key && EqualRect(&c.cur.rc, &f.rc) &&
+    // Same text, colour, style and place as what is on screen, or as a running transition is
+    // heading to (e.g. a settings broadcast on unlock, or a second wallpaper notification during
+    // the colour fade): nothing to draw, just keep the slot. Redrawing would cut the fade short.
+    if (c.cur.bmp && c.cur.hwnd == c.hwnd && c.cur.key == f.key && EqualRect(&c.cur.rc, &f.rc) &&
         EqualRect(&c.cur.win, &f.win) && c.cur.lay.dpi == f.lay.dpi) {
         PlaceWindow(i);
         Log(L"render %s: unchanged", mon.device.c_str());
@@ -564,7 +588,7 @@ void Render(size_t i, bool animate) {
     if (anim) {
         c.animating = true;
         // DWM runs the animation; we only come back to swap in the final static frame.
-        SetTimer(c.hwnd, kAnimTimer, (UINT)s.transitionMs + 60, nullptr);
+        SetTimer(c.hwnd, kAnimTimer, (UINT)FadeMs(c.s) + 60, nullptr);
     } else {
         ShowSingle(c);
     }
@@ -629,7 +653,8 @@ void CALLBACK DesktopEvent(HWINEVENTHOOK, DWORD ev, HWND hwnd, LONG idObject, LO
         GetClassNameW(hwnd, cls, 64);
         if (wcscmp(cls, L"WorkerW") == 0) {   // the wallpaper layer is being replaced: re-sample soon
             Log(L"desktop: WorkerW %p %s", hwnd, ev == EVENT_OBJECT_CREATE ? L"created" : L"shown");
-            SetTimer(g_ctl, TIMER_WALLPAPER, 400, nullptr);
+            if (!g_wallChangeAt) g_wallChangeAt = GetTickCount64();
+            SetTimer(g_ctl, TIMER_WALLPAPER, 30, nullptr);
         }
     }
     static const wchar_t* names[] = { L"create", L"destroy", L"show", L"hide", L"reorder" };
@@ -834,12 +859,20 @@ LRESULT CALLBACK CtlProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             }
             FetchWeather();
             break;
-        case TIMER_WALLPAPER:   // wallpaper changed: re-sample and fade to the new colour
+        case TIMER_WALLPAPER: {   // wallpaper changed: re-sample and fade to the new colour
             KillTimer(hwnd, TIMER_WALLPAPER);
+            const ULONGLONG since = g_wallChangeAt ? GetTickCount64() - g_wallChangeAt : kWallpaperFadeMs;
+            // Windows names the new image a moment after its new layer appears: look again shortly.
+            if (g_wallChangeAt && since < 800 && !WallpaperChanged()) { SetTimer(hwnd, TIMER_WALLPAPER, 50, nullptr); break; }
+            if (!g_wallChangeAt) WallpaperChanged();   // (just note what is shown now)
+            g_wallChangeAt = 0;
             InvalidateWallpaperCache();
             for (auto& c : g_clocks) c->darkState = -1;   // a new wallpaper decides afresh
+            if (since < kWallpaperFadeMs) g_fadeMs = std::max(250.0, (double)(kWallpaperFadeMs - since));
             RenderAll(true);
+            g_fadeMs = 0;
             break;
+        }
         case TIMER_RELOAD: {
             KillTimer(hwnd, TIMER_RELOAD);
             FILETIME ft = IniWriteTime();
