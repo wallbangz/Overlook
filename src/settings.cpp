@@ -58,6 +58,7 @@ void Log(const wchar_t* fmt, ...) {
 
 static const wchar_t kDefaultIni[] =
 L"; Overlook settings. Saved changes are picked up automatically.\r\n"
+L"; The common ones are also in the settings window (tray menu > Settings...), which edits this file in place.\r\n"
 L"; Sizes are in DIPs (device-independent pixels; 1 DIP = 2 physical pixels at 200% scaling).\r\n"
 L"\r\n"
 L"[Clock]\r\n"
@@ -174,7 +175,7 @@ L"CentreOn=ink\r\n"
 L"\r\n"
 L"; Start with Windows (HKCU Run key). Also toggled from the tray menu.\r\n"
 L"StartWithWindows=0\r\n"
-L"; Notification-area icon with Reload / Edit settings / Start with Windows / Exit\r\n"
+L"; Notification-area icon with Settings / Edit settings file / Reload / Start with Windows / Exit\r\n"
 L"TrayIcon=1\r\n"
 L"; Hide every clock (also from the tray menu). Show=0 in a [Monitor ...] section also hides one monitor's clock.\r\n"
 L"HideClocks=0\r\n"

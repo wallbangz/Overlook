@@ -17,6 +17,8 @@
 #include "selftest.h"
 #include "media.h"
 #include "icons.h"
+#include "settingswindow.h"
+#include "inifile.h"
 
 namespace {
 
@@ -26,9 +28,9 @@ const wchar_t kMutexName[]  = L"Local\\Overlook-7f3c2a1e";
 
 enum : UINT_PTR { TIMER_MINUTE = 1, TIMER_RELOAD, TIMER_REFRESH, TIMER_ATTACH, TIMER_HEALTH, TIMER_WALLPAPER,
                   TIMER_WEATHER, TIMER_MEDIA };
-enum : UINT { WM_APP_TRAY = WM_APP + 1, WM_APP_RELOAD, WM_APP_REATTACH, WM_APP_WEATHER, WM_APP_MEDIA };
+enum : UINT { WM_APP_TRAY = WM_APP + 1, WM_APP_RELOAD, WM_APP_REATTACH, WM_APP_WEATHER, WM_APP_MEDIA, WM_APP_SETTINGS };
 const UINT kWeatherEveryMs = 30 * 60 * 1000;
-enum : UINT { ID_RELOAD = 100, ID_EDIT, ID_FOLDER, ID_AUTOSTART, ID_EXIT, ID_HIDE, ID_WEATHER_NOW, ID_MONITOR = 200 };
+enum : UINT { ID_RELOAD = 100, ID_EDIT, ID_SETTINGS, ID_FOLDER, ID_AUTOSTART, ID_EXIT, ID_HIDE, ID_WEATHER_NOW, ID_MONITOR = 200 };
 
 HINSTANCE g_inst;
 HWND g_ctl;
@@ -223,7 +225,8 @@ void ShowTrayMenu() {
     AppendMenuW(m, MF_STRING | (g_s.hideClocks ? MF_CHECKED : 0), ID_HIDE, L"Hide clocks");
     AppendMonitorItems(m);
     AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(m, MF_STRING, ID_EDIT, L"Edit settings…");
+    AppendMenuW(m, MF_STRING, ID_SETTINGS, L"Settings…");
+    AppendMenuW(m, MF_STRING, ID_EDIT, L"Edit settings file…");
     AppendMenuW(m, MF_STRING, ID_RELOAD, L"Reload settings");
     AppendMenuW(m, MF_STRING, ID_FOLDER, L"Open folder");
     if (!g_s.weatherCity.empty()) AppendMenuW(m, MF_STRING, ID_WEATHER_NOW, L"Refresh weather");
@@ -327,6 +330,13 @@ std::vector<Wanted> WantedClocks(bool includeHidden = false) {
         if (!includeHidden && (g_s.hideClocks || !w.s.show || w.trayHidden)) continue;
         out.push_back(std::move(w));
     }
+    return out;
+}
+
+// The settings window's Monitors page and scopes: the Monitor= set, hidden ones too.
+std::vector<SettingsMonitor> SettingsMonitors() {
+    std::vector<SettingsMonitor> out;
+    for (auto& w : WantedClocks(true)) out.push_back({ w.mon, w.id, w.trayHidden, !w.s.show });
     return out;
 }
 
@@ -838,6 +848,7 @@ void ApplySettings() {
         if (!g_s.weatherCity.empty()) SetTimer(g_ctl, TIMER_WEATHER, kWeatherEveryMs, nullptr);
         FetchWeather();
     }
+    SettingsWindowReloaded();
 }
 
 // animate: fade if what the clock says or its colour changed (e.g. an edited Color/Tint).
@@ -917,6 +928,14 @@ LRESULT CALLBACK CtlProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         ApplySettings();
         Refresh(true);
         return 0;
+    case WM_APP_SETTINGS: {
+        SettingsHost host;
+        host.ctl = hwnd;
+        host.reloadMsg = WM_APP_RELOAD;
+        host.monitors = SettingsMonitors;
+        OpenSettingsWindow(g_inst, host);
+        return 0;
+    }
 
     case WM_APP_MEDIA:   // track, playback state or player changed (posted from the media watcher)
         RenderAll(true);
@@ -982,6 +1001,7 @@ LRESULT CALLBACK CtlProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_COMMAND:
         switch (LOWORD(wp)) {
         case ID_RELOAD: PostMessageW(hwnd, WM_APP_RELOAD, 0, 0); break;
+        case ID_SETTINGS: PostMessageW(hwnd, WM_APP_SETTINGS, 0, 0); break;
         case ID_EDIT:   ShellExecuteW(nullptr, L"open", IniPath().c_str(), nullptr, nullptr, SW_SHOWNORMAL); break;
         case ID_FOLDER: ShellExecuteW(nullptr, L"open", ExeDir().c_str(), nullptr, nullptr, SW_SHOWNORMAL); break;
         case ID_AUTOSTART: {
@@ -1023,6 +1043,7 @@ LRESULT CALLBACK CtlProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         if (g_deskHook) { UnhookWinEvent(g_deskHook); g_deskHook = nullptr; }
         if (g_powerNotify) { UnregisterPowerSettingNotification(g_powerNotify); g_powerNotify = nullptr; }
         WTSUnRegisterSessionNotification(hwnd);
+        CloseSettingsWindow();
         UpdateTray(true);
         MediaWatchStop();
         DestroyClocks();
@@ -1279,6 +1300,13 @@ int RunDemo(std::wstring dir, const std::wstring& darkBg, const std::wstring& li
 int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR cmdLine, int) {
     g_inst = inst;
     const bool exitCmd = wcsstr(cmdLine, L"--exit") != nullptr;
+    const bool settingsCmd = wcsstr(cmdLine, L"--settings") != nullptr;
+    if (const wchar_t* t = wcsstr(cmdLine, L"--ini-test")) {   // --ini-test <folder>: Overlook.ini round trips
+        std::wstring dir = t + wcslen(L"--ini-test");
+        while (!dir.empty() && (iswspace(dir.front()) || dir.front() == L'"')) dir.erase(dir.begin());
+        while (!dir.empty() && (iswspace(dir.back()) || dir.back() == L'"')) dir.pop_back();
+        return RunIniTest(dir.empty() ? ExeDir() : dir);
+    }
     if (const wchar_t* t = wcsstr(cmdLine, L"--weather-test")) {
         std::wstring dir = t + wcslen(L"--weather-test");
         while (!dir.empty() && (iswspace(dir.front()) || dir.front() == L'"')) dir.erase(dir.begin());
@@ -1322,9 +1350,12 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR cmdLine, int) {
 
     HANDLE mutex = CreateMutexW(nullptr, TRUE, kMutexName);
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
-        // Already running: --exit closes it, a plain launch reloads its settings.
-        if (HWND other = FindWindowW(kCtlClass, nullptr))
-            PostMessageW(other, exitCmd ? WM_CLOSE : WM_APP_RELOAD, 0, 0);
+        // Already running: --exit closes it, --settings opens its settings window, a plain launch
+        // reloads its settings.
+        if (HWND other = FindWindowW(kCtlClass, nullptr)) {
+            if (settingsCmd) AllowSetForegroundWindow(ASFW_ANY);
+            PostMessageW(other, exitCmd ? WM_CLOSE : settingsCmd ? WM_APP_SETTINGS : WM_APP_RELOAD, 0, 0);
+        }
         return 0;
     }
     if (exitCmd) return 0;
@@ -1360,6 +1391,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR cmdLine, int) {
     WTSRegisterSessionNotification(g_ctl, NOTIFY_FOR_THIS_SESSION);
     UpdateTray();
     Refresh();   // (starts the media watcher if wanted)
+    if (settingsCmd) PostMessageW(g_ctl, WM_APP_SETTINGS, 0, 0);
     if (!g_s.weatherCity.empty()) {   // a cached reading (if recent) is already shown; refresh it now
         SetTimer(g_ctl, TIMER_WEATHER, kWeatherEveryMs, nullptr);
         FetchWeather();

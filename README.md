@@ -35,7 +35,9 @@ Needs Windows 11 (x64). To remove it, choose **Exit** in the tray menu and delet
 
 ## Settings
 
-Right-click the tray icon and choose **Edit settings**. Changes apply as soon as you save the file. The ones you'll most likely want:
+Right-click the tray icon and choose **Settings…**. The window covers the common settings (clock, look, weather, now playing, monitors) and every change shows on the clock straight away; **Undo changes** puts things back as they were when you opened it. Pick a monitor under **Settings for** to give it its own values.
+
+Everything is stored in `Overlook.ini` next to the exe, which the window edits in place, keeping your comments. **Edit settings file…** in the tray menu opens it for the rest; changes apply as soon as you save. The ones you'll most likely want:
 
 | Setting | What it does | Default |
 |---|---|---|

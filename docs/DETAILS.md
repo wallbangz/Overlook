@@ -5,7 +5,14 @@ The [README](../README.md) covers installing and the main settings. This page ha
 ## Settings in detail
 
 - Run `Overlook.exe`. On first run it writes `Overlook.ini` next to the exe; edits are applied as soon as the file is saved.
-- Tray icon menu: Hide clocks, one checkbox per monitor (when there are several), Edit settings, Reload settings, Open folder, Start with Windows, Exit. If the icon is hidden in the overflow, drag it onto the taskbar. The menu saves its choices in `[Clock]`: `HideClocks=1`, and `HiddenMonitors=` (monitors listed by name, or `\\.\DISPLAYn` when two share a name). The per-monitor checkboxes appear whenever there are several monitors or one is hidden, so a hidden clock can always be brought back. A clock switched off with `Show=0` in a `[Monitor ...]` section is listed greyed out, because that setting lives in the .ini.
+- Tray icon menu: Hide clocks, one checkbox per monitor (when there are several), Settings, Edit settings file, Reload settings, Open folder, Start with Windows, Exit. If the icon is hidden in the overflow, drag it onto the taskbar. The menu saves its choices in `[Clock]`: `HideClocks=1`, and `HiddenMonitors=` (monitors listed by name, or `\\.\DISPLAYn` when two share a name). The per-monitor checkboxes appear whenever there are several monitors or one is hidden, so a hidden clock can always be brought back. A clock switched off with `Show=0` in a `[Monitor ...]` section is listed greyed out, because that setting lives in the .ini.
+- **Settings window** (tray menu **Settings…**, or `Overlook.exe --settings`): the common settings on five pages (Clock, Look, Weather, Now playing, Monitors). The rest stay in the .ini, which **More settings in Overlook.ini** opens.
+  - Each change is written to `Overlook.ini` at once and the clock reloads it, so the clock itself is the preview. Sliders write when you stop moving them for 150 ms, text boxes on Enter or when you leave them.
+  - The file is edited line by line: only the changed value is replaced, and a new key goes at the end of its section, so comments, unknown keys, inline `; comments`, key spelling, the encoding and line endings stay as they were. Keys you don't touch keep your own spelling of their value (`80%`, `on`). The first write in a session copies the file to `Overlook.ini.bak`.
+  - **Undo changes** writes back the file exactly as it was when the window opened (including anything the tray menu changed since).
+  - **Settings for** picks *All monitors* (`[Clock]`) or one monitor. For a monitor, each setting shows the value that monitor uses; changing it writes to that monitor's `[Monitor ...]` section (the last one that matches it, or a new `[Monitor primary]` / `[Monitor <name>]`), marked with a dot and a **Reset** link that removes the override. App-wide settings are greyed out there.
+  - The Monitors page's on/off switches are the tray menu's (`HiddenMonitors`).
+  - It follows Windows' light or dark mode, accent colour and high contrast, is drawn with Direct2D at the window's DPI, and works from the keyboard: Tab / Shift+Tab, arrows, Space or Enter, Page Up/Down and Home/End on sliders, Alt+Down or F4 for lists, Ctrl+Tab between pages, Esc to close. Screen readers see every control through UI Automation (toggle switches, sliders, combo boxes, edit boxes, buttons).
 - **Monitors**: `Monitor=all`, one monitor (`top`, `primary`, `2`, `\\.\DISPLAY1`, part of its name), or a list such as `top,primary`. Every monitor uses the `[Clock]` settings. A `[Monitor <which>]` section overrides any of them for that monitor, for example:
 
   ```ini
@@ -34,6 +41,8 @@ The [README](../README.md) covers installing and the main settings. This page ha
   ffmpeg -framerate 30 -i minute-%03d.png -vf "crop=760:240:260:30,split[a][b];[a]palettegen[p];[b][p]paletteuse=dither=sierra2_4a" -loop 0 demo-minute.gif
   ```
 
+- `Overlook.exe --ini-test [folder]` checks the settings window's .ini editing on the default ini, a copy of `Overlook.ini` and hand-made UTF-8/UTF-16 files: unchanged round trips are byte-identical, only edited lines change, and Windows reads the edits back. It writes `ini-test.txt` (key names and line numbers only) and never touches `Overlook.ini` itself.
+- `Overlook.exe --settings` opens the settings window (of the running clock, or starts the clock with it).
 - `Overlook.exe --exit` closes a running instance. Launching it again while running reloads its settings.
 - Keep `OFL.txt` (the Inter font licence) next to the exe.
 
