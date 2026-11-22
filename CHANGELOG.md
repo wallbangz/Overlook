@@ -4,6 +4,8 @@ What changed in each version of Overlook. Each release on GitHub shows its secti
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-22
+
 ### Fixed
 - Settings window, high contrast themes: the selected page and the selected item in a drop-down list are drawn in the theme's highlight colours, so their text is readable. Hovered pages get an outline, and the colour swatch's border follows the theme.
 
@@ -33,6 +35,7 @@ First public release.
 - OLED care: slow pixel shift and night dimming.
 - Pauses while the screen is off or locked; tray menu to hide the clocks or pick monitors; Start with Windows.
 
-[Unreleased]: https://github.com/wallbangz/Overlook/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/wallbangz/Overlook/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/wallbangz/Overlook/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/wallbangz/Overlook/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/wallbangz/Overlook/releases/tag/v0.1.0
