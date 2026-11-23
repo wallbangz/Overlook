@@ -9,7 +9,7 @@ Overlook is new. If you try it, please [tell me how it went](#feedback).
 ## Features
 
 - **Lock-screen look**: the date over a large time, centred on each monitor.
-- **Matches your wallpaper**: light or dark text chosen automatically, tinted toward the wallpaper's colour, and updated when the wallpaper or slideshow changes.
+- **Matches your wallpaper**: light or dark text chosen automatically, tinted toward the wallpaper's colour, and updated when the wallpaper or slideshow changes. On a busy wallpaper, such as bright sky through leaves, the shadow and the smaller lines get stronger so everything stays readable.
 - **Smooth minute changes**: digits that stay slide into place and new ones fade in, at your display's refresh rate.
 - **Weather**: temperature and high/low, plus extras only when they matter (feels-like, wind, rain, UV, air quality, sunrise or sunset). No account or API key.
 - **Now playing**: the artist and track from Spotify and other music apps, dimmed while paused.
@@ -42,7 +42,7 @@ Right-click the tray icon and choose **Settings…**. Every change shows on the 
 | Page | What you can change |
 |---|---|
 | **Clock** | 24-hour or 12-hour time with AM/PM, leading zero, date format and language (with a preview of today), Start with Windows |
-| **Look** | Vertical position, time and date size, text colour, auto-contrast (dark text on bright wallpapers), tint, opacity, the weather and now-playing lines' opacity, shadow, the minute transition |
+| **Look** | Vertical position, time and date size, text colour, auto-contrast (dark text on bright wallpapers), tint, opacity, the weather and now-playing lines' opacity, shadow, adapting to busy wallpapers, the minute transition |
 | **Weather** | The weather line on or off, your city, °C or °F, and the extras: chance of rain, feels like, wind, UV, air quality, sunrise and sunset |
 | **Now playing** | The now-playing line on or off, which apps it listens to, how long it stays after you pause |
 | **Monitors** | Which monitors show a clock, OLED care (pixel shift, night dimming and its opacity) |
