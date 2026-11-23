@@ -549,6 +549,66 @@ void ChooseColour(const Settings& s, const MonitorInfo& mon, const RECT& ink, in
         GetRValue(base), GetGValue(base), GetBValue(base), GetRValue(color), GetGValue(color), GetBValue(color));
 }
 
+// AdaptiveLegibility. On a busy wallpaper the average behind the clock can look fine while its
+// brightest patches (under light text) or darkest ones (under dark text) come close to the text's
+// own lightness, and parts of the lines vanish into them. How close they come sets the boost,
+// 0..1: from a gap of kLegibleGapNone L* (no help needed) down to kLegibleGapFull (all of it).
+constexpr double kLegibleGapNone = 35, kLegibleGapFull = 15;   // a smooth mid-tone sky (gap ~33) reads fine as it is
+
+// How far (L*) the clashing tenth of the wallpaper stays from the text.
+double LegibilityGap(const WallpaperSample& ws, COLORREF text, bool darkText) {
+    auto lin = [](int v) { const double c = v / 255.0; return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4); };
+    const double textL = LStar(0.2126 * lin(GetRValue(text)) + 0.7152 * lin(GetGValue(text)) + 0.0722 * lin(GetBValue(text)));
+    return darkText ? ws.lightLo - textL : textL - ws.lightHi;
+}
+
+double LegibilityNeed(const WallpaperSample& ws, COLORREF text, bool darkText) {
+    const double gap = LegibilityGap(ws, text, darkText);
+    const double t = std::clamp((kLegibleGapNone - gap) / (kLegibleGapNone - kLegibleGapFull), 0.0, 1.0);
+    return std::round(t * t * (3 - 2 * t) * 10) / 10;   // in steps, so a pixel shift doesn't redraw every line
+}
+
+// Moves the frame's shadow and weather/now-playing opacity toward kLegible* by `need`; never weakens them.
+void ApplyLegibility(const Settings& s, double need, FrameLayout& f) {
+    f.legibility = s.adaptiveLegibility ? need : 0;
+    if (f.legibility <= 0) return;
+    const double k = f.legibility;
+    auto toward = [k](double from, double to) { return from + (std::max(from, to) - from) * k; };
+    f.shadowOpacity = toward(s.shadow ? s.shadowOpacity : 0, kLegibleShadowOpacity);
+    f.shadowBlur = toward(s.shadow ? s.shadowBlur : kLegibleShadowBlur, kLegibleShadowBlur);
+    f.shadow = true;
+    f.secondaryAlpha = (float)(toward(s.secondaryOpacity, kLegibleSecondary) / 100.0);
+}
+
+// The need for the chosen text colour over `ws` (the wallpaper behind all the lines). Auto-contrast
+// goes by the average, which on a busy wallpaper can sit right at its threshold; when the text needs
+// help, the other colour may clash less (light text with a dark shadow over bright gaps in dark
+// foliage, say), and is used instead when it clearly needs less.
+double LegibleChoice(const Settings& s, const WallpaperSample& ws, COLORREF& color, bool& dark) {
+    if (!s.adaptiveLegibility) return 0;
+    if (LegibilityNeed(ws, color, dark) > 0 && s.autoContrast) {
+        // Light text counts 10 L* better: its dark shadow covers more than dark text's faint light halo.
+        const COLORREF alt = TintColor(dark ? s.color : s.darkColor, ws, s.tint / 100.0);
+        auto score = [&](COLORREF c, bool d) { return LegibilityGap(ws, c, d) + (d ? 0 : 10); };
+        if (score(alt, !dark) > score(color, dark) + 3) { color = alt; dark = !dark; }
+    }
+    return LegibilityNeed(ws, color, dark);
+}
+
+// The same for the frame placed with its bitmap's top-left at `pos` (screen px) on `mon`.
+double LegibilityAt(const Settings& s, const MonitorInfo& mon, const FrameLayout& lay, POINT pos, COLORREF& color, bool& dark) {
+    if (!s.adaptiveLegibility) return 0;
+    RECT rc = lay.g.lines;
+    OffsetRect(&rc, pos.x, pos.y);
+    WallpaperSample ws;
+    if (!SampleWallpaper(mon.rc, rc, ws)) return 0;
+    const bool wasDark = dark;
+    const double need = LegibleChoice(s, ws, color, dark);
+    Log(L"legibility %s: L* %.0f..%.0f (mean %.0f) -> %.1f%s", mon.device.c_str(), ws.lightLo, ws.lightHi, ws.lightness, need,
+        dark != wasDark ? (dark ? L", dark text instead" : L", light text instead") : L"");
+    return need;
+}
+
 void Render(size_t i, bool animate) {
     Clock& c = *g_clocks[i];
     if (!c.hwnd) return;
@@ -583,11 +643,13 @@ void Render(size_t i, bool animate) {
     RECT ink = g.ink;
     OffsetRect(&ink, pos.x, pos.y);
     ChooseColour(s, mon, ink, c.darkState, f.color, f.dark);
+    ApplyLegibility(s, LegibilityAt(s, mon, f.lay, pos, f.color, f.dark), f.lay);
+    if (c.darkState >= 0) c.darkState = f.dark ? 1 : 0;   // (the hysteresis follows a switch made for legibility)
 
     f.rc = { pos.x, pos.y, pos.x + g.width, pos.y + g.height };
     f.win = mon.rc;
     f.hwnd = c.hwnd;
-    wchar_t col[48]; swprintf_s(col, L"|%06X|%.0f|%d|%u", (unsigned)f.color, s.opacity, f.dark ? 1 : 0, g_styleGen);
+    wchar_t col[64]; swprintf_s(col, L"|%06X|%.0f|%d|%u|%.2f", (unsigned)f.color, s.opacity, f.dark ? 1 : 0, g_styleGen, f.lay.legibility);
     f.dateKey = date + col;
     f.weatherKey = weather + col;
     f.mediaKey = media + col + (mediaPaused ? L"|paused" : L"");
@@ -1103,22 +1165,42 @@ int RunPreview(std::wstring dir, const std::wstring& wallpaperOverride) {
             const int cx = (int)lround(monW / 2.0 + s.horizontalOffset * k), cy = (int)lround(monH * s.verticalPos / 100.0);
             const POINT pos{ cx - g.anchorX, cy - g.anchorY };   // px on the monitor
             RECT ink = g.ink;
-            OffsetRect(&ink, mon.rc.left + pos.x, mon.rc.top + pos.y);
             int darkState = -1;
-            COLORREF color = 0;
+            COLORREF color = s.color;
             bool dark = false;
-            ChooseColour(s, mon, ink, darkState, color, dark);
+            WallpaperSample spread{};
+            if (wallpaperOverride.empty()) {
+                OffsetRect(&ink, mon.rc.left + pos.x, mon.rc.top + pos.y);
+                ChooseColour(s, mon, ink, darkState, color, dark);
+                ApplyLegibility(s, LegibilityAt(s, mon, lay, { mon.rc.left + pos.x, mon.rc.top + pos.y }, color, dark), lay);
+            } else {   // the image given, filling the monitor (monitor px)
+                OffsetRect(&ink, pos.x, pos.y);
+                WallpaperSample ws;
+                if (r.SampleImage(wall, { monW, monH }, ink, ws)) {
+                    dark = s.autoContrast && ws.lightness > s.brightThreshold;
+                    color = TintColor(dark ? s.darkColor : s.color, ws, s.tint / 100.0);
+                }
+                RECT lines = g.lines;
+                OffsetRect(&lines, pos.x, pos.y);
+                if (s.adaptiveLegibility && r.SampleImage(wall, { monW, monH }, lines, spread))
+                    ApplyLegibility(s, LegibleChoice(s, spread, color, dark), lay);
+            }
             auto bmp = r.RenderFrame(lay, color, dark);
             wchar_t name[64], line[512];
             swprintf_s(name, L"preview-%d-%s.png", n, v ? L"proposed" : L"now");
             if (!bmp || !r.SaveScene(dir + name, { monW, monH }, { { wall, 1.f } }, position, bg,
                                        { { bmp.Get(), { (float)pos.x, (float)pos.y }, 1.f } },
                                        (float)std::min(1.0, 1920.0 / monW))) rc = 1;
+            if (!wallpaperOverride.empty()) {
+                swprintf_s(line, L"    behind the lines: L* %.0f..%.0f, mean %.0f\r\n", spread.lightLo, spread.lightHi, spread.lightness);
+                report += line;
+            }
             swprintf_s(line, L"%s  %s (%dx%d, %u dpi): TimeSize=%g DateSize=%g Gap=%g WeatherSize=%g WeatherGap=%g "
-                             L"SecondaryOpacity=%g VerticalPosition=%.1f; date capitals at %.1f%% of the height\r\n",
+                             L"SecondaryOpacity=%g VerticalPosition=%.1f; date capitals at %.1f%% of the height; "
+                             L"%s text, legibility boost %.1f\r\n",
                        name, mon.name.empty() ? mon.device.c_str() : mon.name.c_str(), monW, monH, mon.dpi, s.timeSize,
                        s.dateSize, s.gap, s.weatherSize, s.weatherGap, s.secondaryOpacity, s.verticalPos,
-                       (pos.y + g.ink.top) * 100.0 / monH);
+                       (pos.y + g.ink.top) * 100.0 / monH, dark ? L"dark" : L"light", lay.legibility);
             report += line;
         }
     }
@@ -1186,10 +1268,13 @@ int RunDemo(std::wstring dir, const std::wstring& darkBg, const std::wstring& li
             f.dark = s.autoContrast && ws.lightness > s.brightThreshold;
             f.color = TintColor(f.dark ? s.darkColor : s.color, ws, s.tint / 100.0);
         }
+        RECT lines = g.lines;
+        OffsetRect(&lines, pos.x, pos.y);
+        if (s.adaptiveLegibility && g_r.SampleImage(bgPath, monSz, lines, ws)) ApplyLegibility(s, LegibleChoice(s, ws, f.color, f.dark), f.lay);
         f.rc = { pos.x, pos.y, pos.x + g.width, pos.y + g.height };
         f.win = mon.rc;
-        wchar_t col[48];
-        swprintf_s(col, L"|%06X|%.0f|%d", (unsigned)f.color, s.opacity, f.dark ? 1 : 0);
+        wchar_t col[64];
+        swprintf_s(col, L"|%06X|%.0f|%d|%.2f", (unsigned)f.color, s.opacity, f.dark ? 1 : 0, f.lay.legibility);
         f.dateKey = date + col;
         f.weatherKey = weather + col;
         f.mediaKey = media + col;

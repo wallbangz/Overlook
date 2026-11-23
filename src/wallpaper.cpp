@@ -342,19 +342,35 @@ bool SampleWallpaper(const RECT& monitorRect, const RECT& region, WallpaperSampl
 
     const Lin bg = LinearColorref(rw.bg);
     Lin sum{ 0, 0, 0 };
+    std::vector<double> l;
+    l.reserve(kCols * kRows);
     for (int y = 0; y < kRows; ++y) {
         double sy = region.top + (y + 0.5) * rhei / kRows;
         for (int x = 0; x < kCols; ++x) {
             double sx = region.left + (x + 0.5) * rwid / kCols;
             Lin p = SamplePixel(c, rw, sx, sy, bg);
             sum.r += p.r; sum.g += p.g; sum.b += p.b;
+            l.push_back(LStar(0.2126 * p.r + 0.7152 * p.g + 0.0722 * p.b));
         }
     }
     const double n = kCols * kRows;
     out.r = sum.r / n; out.g = sum.g / n; out.b = sum.b / n;
-    const double Y = 0.2126 * out.r + 0.7152 * out.g + 0.0722 * out.b;
-    out.lightness = Y > 0.008856 ? 116.0 * std::cbrt(Y) - 16.0 : 903.3 * Y;
+    out.lightness = LStar(0.2126 * out.r + 0.7152 * out.g + 0.0722 * out.b);
+    SetLightSpread(l, out);
     return true;
+}
+
+double LStar(double Y) {
+    return Y > 0.008856 ? 116.0 * std::cbrt(Y) - 16.0 : 903.3 * Y;
+}
+
+void SetLightSpread(std::vector<double>& l, WallpaperSample& out) {
+    if (l.empty()) { out.lightLo = out.lightHi = out.lightness; return; }
+    const size_t lo = l.size() / 10, hi = l.size() - 1 - l.size() / 10;
+    std::nth_element(l.begin(), l.begin() + lo, l.end());
+    out.lightLo = l[lo];
+    std::nth_element(l.begin(), l.begin() + hi, l.end());
+    out.lightHi = l[hi];
 }
 
 bool WallpaperFile(const RECT& monitorRect, std::wstring& path, int& position, COLORREF& bg) {

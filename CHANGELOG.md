@@ -4,6 +4,9 @@ What changed in each version of Overlook. Each release on GitHub shows its secti
 
 ## [Unreleased]
 
+### Added
+- **Adapt to busy wallpapers** (`AdaptiveLegibility`, on by default; Settings › Look). On a busy wallpaper, such as bright sky through dark leaves, the clock strengthens its shadow and brings the weather and now-playing lines up to full opacity, as much as that wallpaper needs. If the text still clashes, it picks whichever of light or dark text reads better. Calm wallpapers look exactly as before.
+
 ## [0.2.1] - 2026-11-22
 
 ### Fixed

@@ -95,6 +95,9 @@ L"Shadow=1\r\n"
 L"ShadowOpacity=30\r\n"
 L"ShadowBlur=6\r\n"
 L"ShadowOffsetY=1\r\n"
+L"; On a busy wallpaper (bright patches under light text, dark ones under dark text), strengthen the\r\n"
+L"; shadow and the weather and now-playing lines as much as needed. Calm wallpapers are unaffected.\r\n"
+L"AdaptiveLegibility=1\r\n"
 L"\r\n"
 L"; Weather line under the time, from Open-Meteo (free, no account). Leave WeatherCity empty to turn it off.\r\n"
 L"; The city name (e.g. Lisbon, \"Porto, PT\", or a postcode) is looked up once; the coordinates are\r\n"
@@ -270,6 +273,7 @@ static void ReadClockKeys(const Src& ini, const Settings& d, Settings& s) {
     s.shadowOpacity    = Clamp(ReadNum(ini, L"ShadowOpacity", d.shadowOpacity), 0, 100);
     s.shadowBlur       = Clamp(ReadNum(ini, L"ShadowBlur", d.shadowBlur), 0, 100);
     s.shadowOffsetY    = Clamp(ReadNum(ini, L"ShadowOffsetY", d.shadowOffsetY), -100, 100);
+    s.adaptiveLegibility = ReadBool(ini, L"AdaptiveLegibility", d.adaptiveLegibility);
     s.showWeather      = ReadBool(ini, L"ShowWeather", d.showWeather);
     s.feelsLike        = ReadBool(ini, L"FeelsLike", d.feelsLike);
     s.feelsLikeDiff    = Clamp(ReadNum(ini, L"FeelsLikeDiff", d.feelsLikeDiff), 0, 50);

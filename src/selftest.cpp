@@ -103,6 +103,7 @@ struct Builder {
     Settings Defaults() const {
         Settings s;
         s.weatherCity = L"Fakeville";
+        s.adaptiveLegibility = false;   // no wallpaper here; and its shadow room would make the galleries too tall to save
         return s;
     }
     void Add(const std::wstring& label, const WeatherReading& w, const Settings& s, bool f = false, bool expectEmpty = false,

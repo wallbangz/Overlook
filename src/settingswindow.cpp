@@ -250,6 +250,8 @@ void Window::BuildControls() {
     row({ slider(1, L"SecondaryOpacity", L"Weather and now-playing opacity", L"% of the clock's opacity, so the time stands out",
                  L"70", 0, 100, 1, 10, L" %") });
     row({ add(Kind::Toggle, 1, L"Shadow", L"Shadow", L"A soft shadow for legibility", L"1") });
+    row({ add(Kind::Toggle, 1, L"AdaptiveLegibility", L"Adapt to busy wallpapers",
+              L"A stronger shadow and brighter weather and now playing when the wallpaper behind is busy", L"1") });
     header(1, L"Motion");
     {
         const int i = slider(1, L"TransitionMs", L"Minute transition", L"Unchanged digits slide, changed ones crossfade",

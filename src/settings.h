@@ -30,6 +30,7 @@ struct Settings {
     double shadowOpacity = 30.0;     // %
     double shadowBlur    = 6.0;      // DIPs (gaussian std deviation)
     double shadowOffsetY = 1.0;      // DIPs
+    bool   adaptiveLegibility = true;   // stronger shadow and secondary lines on busy wallpapers
 
     // Weather line under the time (Open-Meteo); off while weatherCity is empty
     std::wstring weatherCity;        // "Lisbon", "Porto, PT", a postcode...

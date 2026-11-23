@@ -11,12 +11,17 @@
 
 using Microsoft::WRL::ComPtr;
 
+// AdaptiveLegibility: the most a busy wallpaper gets of shadow (opacity %, blur DIPs) and of
+// weather/now-playing opacity (% of Opacity).
+constexpr double kLegibleShadowOpacity = 90, kLegibleShadowBlur = 12, kLegibleSecondary = 100;
+
 // Result of laying out one frame, in physical pixels of the target monitor.
 struct ClockGeometry {
     int width = 0, height = 0;   // bitmap/window size
     int anchorX = 0;             // horizontal centre of the text, inside the bitmap
     int anchorY = 0;             // vertical centre of the date+time block (date cap top .. time baseline)
     RECT ink{};                  // approximate text area inside the bitmap (for wallpaper sampling)
+    RECT lines{};                // every line's box (date to now playing), inside the bitmap
 };
 
 // Everything needed to draw one frame; kept alive so the previous minute can be re-drawn
@@ -40,6 +45,7 @@ struct FrameLayout {
     // Style the frame was laid out with (each monitor can have its own settings).
     double opacity = 80, shadowOpacity = 0, shadowBlur = 0, shadowOffsetY = 0;
     bool shadow = false;
+    double legibility = 0;       // AdaptiveLegibility's boost for this frame, 0..1
     bool guide = false;          // self-test: draw the centre line
     double opticalCentring = 0;  // the setting the time was placed with
     int colonIndex = -1;         // CentreOn=colon: the time character on the centre line (-1 = the time's ink)

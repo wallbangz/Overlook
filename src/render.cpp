@@ -359,13 +359,16 @@ bool ClockRenderer::Prepare(const Settings& s, UINT dpi, const std::wstring& dat
     const float contentW = std::max({ dm.width, tm.width + 2.f * std::fabs(timeShift),
                                       f.weather ? wm.width : 0.f, f.media ? mm.width : 0.f });
 
-    const float padDip = 4.f + (s.shadow ? (float)(s.shadowBlur * 3 + std::fabs(s.shadowOffsetY)) : 0.f);
+    // Room for the shadow, including the stronger one AdaptiveLegibility may add.
+    const double blur = std::max(s.shadow ? s.shadowBlur : 0.0, s.adaptiveLegibility ? kLegibleShadowBlur : 0.0);
+    const float padDip = 4.f + (blur > 0 ? (float)(blur * 3 + std::fabs(s.shadowOffsetY)) : 0.f);
     const int pad = (int)std::ceil(padDip * k);
 
     g.width = (int)std::ceil((contentW + 2.f * kLineSlackDip) * k) + 2 * pad;
     g.width += g.width & 1;
     g.height = (int)std::ceil((contentBottom - contentTop) * k) + 2 * pad;
     g.anchorX = g.width / 2;
+    g.lines = { pad, pad, g.width - pad, g.height - pad };
 
     // Baselines on whole pixels for consistent stems.
     const float dateBasePx = pad + std::round((dateBase - contentTop) * k);
@@ -628,17 +631,21 @@ bool ClockRenderer::SampleImage(const std::wstring& path, SIZE mon, const RECT& 
     auto lin = [](int v) { const double c = v / 255.0; return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4); };
     double r = 0, g = 0, b = 0;
     const int kCols = 48, kRows = 16;
+    std::vector<double> l;
+    l.reserve(kCols * kRows);
     for (int y = 0; y < kRows; ++y)
         for (int x = 0; x < kCols; ++x) {
             const double sx = rc.left + (x + 0.5) * (rc.right - rc.left) / kCols, sy = rc.top + (y + 0.5) * (rc.bottom - rc.top) / kRows;
             const UINT ix = (UINT)std::clamp((sx - ox) / s, 0.0, im->w - 1.0), iy = (UINT)std::clamp((sy - oy) / s, 0.0, im->h - 1.0);
             const BYTE* p = &im->px[((size_t)iy * im->w + ix) * 4];
-            b += lin(p[0]); g += lin(p[1]); r += lin(p[2]);
+            const double pb = lin(p[0]), pg = lin(p[1]), pr = lin(p[2]);
+            b += pb; g += pg; r += pr;
+            l.push_back(LStar(0.2126 * pr + 0.7152 * pg + 0.0722 * pb));
         }
     const double n = kCols * kRows;
     out.r = r / n; out.g = g / n; out.b = b / n;
-    const double Y = 0.2126 * out.r + 0.7152 * out.g + 0.0722 * out.b;
-    out.lightness = Y > 0.008856 ? 116.0 * std::cbrt(Y) - 16.0 : 903.3 * Y;
+    out.lightness = LStar(0.2126 * out.r + 0.7152 * out.g + 0.0722 * out.b);
+    SetLightSpread(l, out);
     return true;
 }
 
