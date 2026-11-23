@@ -4,6 +4,8 @@ What changed in each version of Overlook. Each release on GitHub shows its secti
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-23
+
 ### Added
 - **Adapt to busy wallpapers** (`AdaptiveLegibility`, on by default; Settings › Look). On a busy wallpaper, such as bright sky through dark leaves, the clock strengthens its shadow and brings the weather and now-playing lines up to full opacity, as much as that wallpaper needs. If the text still clashes, it picks whichever of light or dark text reads better. Calm wallpapers look exactly as before.
 
@@ -38,7 +40,8 @@ First public release.
 - OLED care: slow pixel shift and night dimming.
 - Pauses while the screen is off or locked; tray menu to hide the clocks or pick monitors; Start with Windows.
 
-[Unreleased]: https://github.com/wallbangz/Overlook/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/wallbangz/Overlook/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/wallbangz/Overlook/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/wallbangz/Overlook/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/wallbangz/Overlook/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/wallbangz/Overlook/releases/tag/v0.1.0
