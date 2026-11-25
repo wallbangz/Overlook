@@ -4,6 +4,13 @@ What changed in each version of Overlook. Each release on GitHub shows its secti
 
 ## [Unreleased]
 
+### Added
+- **Weather effects** (`WeatherEffects`, off by default; Settings › Weather): soft clouds, fog, rain, freezing rain and sleet, thunderstorms with lightning glows, and snow drift over the wallpaper, below the clock and icons. They follow the current weather and wind, are fainter and bluer at night, and are animated by Windows, so Overlook uses almost no CPU while they run. Choose the real weather or one effect, the opacity, and whether lightning shows. They need a weather city.
+- Effects pause behind maximised or full-screen windows, on battery (unless **Run on battery** is on), in Energy Saver, with Windows animations turned off, in remote desktop sessions, and while the screen is off or locked.
+- **Troubleshooting** on the About page: a diagnostic log, with place names, wallpaper names and track titles masked unless **Include private details** is on.
+
+### Changed
+- The log carries the full date on each line, starts with the version, Windows build and monitors, and rolls over to `Overlook.log.1` at 1 MB.
 ## [0.3.1] - 2026-11-25
 
 ### Added

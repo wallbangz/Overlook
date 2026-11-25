@@ -12,6 +12,7 @@ Overlook is new. If you try it, please [tell me how it went](#feedback).
 - **Matches your wallpaper**: light or dark text chosen automatically, tinted toward the wallpaper's colour, and updated when the wallpaper or slideshow changes. On a busy wallpaper, such as bright sky through leaves, the shadow and the smaller lines get stronger so everything stays readable.
 - **Smooth minute changes**: digits that stay slide into place and new ones fade in, at your display's refresh rate.
 - **Weather**: temperature and high/low, plus extras only when they matter (feels-like, wind, rain, UV, air quality, sunrise or sunset). No account or API key.
+- **Weather effects** (optional): soft clouds, fog, rain, sleet, thunderstorms and snow drift over the wallpaper, below the clock and icons, following the current weather and the wind. Windows animates them, so Overlook itself uses almost no CPU while they run, and they pause behind maximised or full-screen windows, on battery and in Energy Saver.
 - **Now playing**: the artist and track from Spotify and other music apps, dimmed while paused.
 - **Several monitors**: a clock on each, with its own settings, sharp at any display scaling.
 - **OLED care**: an optional slow pixel shift and night dimming.
@@ -44,10 +45,10 @@ Right-click the tray icon and choose **Settings…**. Every change shows on the 
 |---|---|
 | **Clock** | 24-hour or 12-hour time with AM/PM, leading zero, date format and language (with a preview of today), Start with Windows |
 | **Look** | Vertical position, time and date size, text colour, auto-contrast (dark text on bright wallpapers), tint, opacity, the weather and now-playing lines' opacity, shadow, adapting to busy wallpapers, the minute transition |
-| **Weather** | The weather line on or off, your city, °C or °F, and the extras: chance of rain, feels like, wind, UV, air quality, sunrise and sunset |
+| **Weather** | The weather line on or off, your city, °C or °F, and the extras: chance of rain, feels like, wind, UV, air quality, sunrise and sunset. Weather effects: on or off, the real weather or one effect of your choice, opacity, lightning, running on battery |
 | **Now playing** | The now-playing line on or off, which apps it listens to, how long it stays after you pause |
 | **Monitors** | Which monitors show a clock, OLED care (pixel shift, night dimming and its opacity) |
-| **About** | Version, checking for updates (once a day, or now) and a button to get the latest release, links to the source and issues, credits |
+| **About** | Version, checking for updates (once a day, or now) and a button to get the latest release, links to the source and issues, credits, and a diagnostic log for bug reports |
 
 - **One monitor at a time:** pick a monitor under **Settings for** to give it its own values. A setting a monitor overrides gets a dot and a **Reset** link; under *All monitors* the window tells you which monitor keeps its own value.
 - **Undo changes** puts everything back as it was when you opened the window.
@@ -67,7 +68,7 @@ Every setting is explained in the file itself and in [docs/DETAILS.md](docs/DETA
 
 Overlook has only been tested on a few setups so far, so reports from yours are very welcome:
 
-- **Something looks wrong?** [Open an issue](../../issues/new) with a screenshot, your Windows version and your display scaling.
+- **Something looks wrong?** [Open an issue](../../issues/new) with a screenshot, your Windows version and your display scaling. For problems that come and go, turn on **Diagnostic log** under Settings › About and attach `Overlook.log`; place names, wallpaper names and track titles in it are masked.
 - **Missing something?** Feature requests are welcome too, from small tweaks to new lines of information.
 - **Want to help?** Pull requests are welcome. For bigger changes, open an issue first so we can agree on the approach.
 
@@ -79,6 +80,7 @@ Overlook has only been tested on a few setups so far, so reports from yours are 
 - Each line is centred by its visible outline rather than by font measurements. A built-in self-test checks every minute of the day and every date of a year.
 - Weather comes from [Open-Meteo](https://open-meteo.com) every 30 minutes. Only your city name (once) and its coordinates are sent.
 - The update check sends one anonymous request a day to GitHub's API (`api.github.com`), with a generic user agent and nothing about you or your PC. Turn it off on the About page.
+- Weather effects are drawn once as soft shapes and animated by the Windows compositor, the same way as the minute change. They sit on the desktop layer under the clock, so they never cover your apps.
 - Now playing listens to Windows' media controls, the same source as the volume flyout, with no polling.
 
 More detail: [docs/DETAILS.md](docs/DETAILS.md).
