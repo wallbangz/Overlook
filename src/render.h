@@ -103,6 +103,14 @@ public:
     bool Animate(HWND hwnd, const AnimLayer* layers, int count, double seconds, double textAlpha);
     void ReleaseTarget(HWND hwnd);   // before a target window goes away (nullptr = all)
 
+    // Weather effects (weatherfx.cpp) draw into a container visual that sits below the text in
+    // the same window, with the same devices. keep: objects the effect must hold while it runs
+    // (cleared with the layer). Changes show at the next Commit().
+    IDCompositionVisual* FxLayer(HWND hwnd, std::vector<ComPtr<IUnknown>>** keep);
+    IDCompositionDevice* Dcomp() { return dcomp_.Get(); }
+    ID2D1DeviceContext* OffDc() { return offDc_.Get(); }
+    bool Commit();
+
     // Self-test: stacks the rows (label, then the frame cropped from srcTop to its bottom) on an
     // opaque dark background and writes a PNG. dpi: the DPI the row bitmaps were rendered at.
     bool SaveGallery(const std::wstring& path, const std::vector<GalleryRow>& rows, float dpi);
@@ -154,7 +162,10 @@ private:
     struct Target {
         HWND hwnd = nullptr;
         ComPtr<IDCompositionTarget> target;
-        ComPtr<IDCompositionVisual> visual;
+        ComPtr<IDCompositionVisual> root;       // holds fx (bottom) and visual (top)
+        ComPtr<IDCompositionVisual> fx;         // weather effects
+        std::vector<ComPtr<IUnknown>> fxKeep;
+        ComPtr<IDCompositionVisual> visual;     // the text: static frame or transition layers
         ComPtr<IDCompositionSurface> surface;   // the static frame
         int surfaceW = 0, surfaceH = 0;
         std::vector<ComPtr<IUnknown>> anim;     // visuals/surfaces/effects of a running transition

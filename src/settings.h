@@ -60,6 +60,11 @@ struct Settings {
     double rainThreshold = 30.0;     // show the chance of rain when it reaches this % ...
     double rainHours     = 6.0;      // ... within this many hours
 
+    // Weather effects: abstract shapes over the wallpaper, below the clock and icons (per monitor)
+    bool   weatherEffects = false;
+    double weatherEffectsOpacity = 40.0;   // % the most opaque shape gets
+    std::wstring weatherEffectsForce;      // "" = from the weather; clouds-light | clouds | clouds-heavy | rain = always that
+
     // OLED care (per monitor)
     bool   pixelShift    = false;    // move the clock along a slow loop, 1 px at a time
     double pixelShiftRange = 4.0;    // physical pixels each way

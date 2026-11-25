@@ -45,10 +45,22 @@ void Log(const wchar_t* fmt, ...) {
     va_end(ap);
     SYSTEMTIME st; GetLocalTime(&st);
     wchar_t line[1200];
-    int n = swprintf_s(line, L"%02u:%02u:%02u.%03u  %s\r\n", st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, msg);
+    int n = swprintf_s(line, L"%04u-%02u-%02u %02u:%02u:%02u.%03u  %s\r\n", st.wYear, st.wMonth, st.wDay,
+                       st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, msg);
     const std::wstring path = ExeBase() + L".log";
-    HANDLE h = CreateFileW(path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, 0, nullptr);
+    HANDLE h = CreateFileW(path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                           nullptr, OPEN_ALWAYS, 0, nullptr);
     if (h == INVALID_HANDLE_VALUE) return;
+    // Two files at most: past kLogMax the log becomes Overlook.log.1 (replacing the older one).
+    constexpr LONGLONG kLogMax = 1024 * 1024;
+    LARGE_INTEGER size{};
+    if (GetFileSizeEx(h, &size) && size.QuadPart > kLogMax) {
+        CloseHandle(h);
+        MoveFileExW(path.c_str(), (path + L".1").c_str(), MOVEFILE_REPLACE_EXISTING);
+        h = CreateFileW(path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                        nullptr, OPEN_ALWAYS, 0, nullptr);
+        if (h == INVALID_HANDLE_VALUE) return;
+    }
     int bytes = WideCharToMultiByte(CP_UTF8, 0, line, n, nullptr, 0, nullptr, nullptr);
     std::vector<char> u8(bytes);
     WideCharToMultiByte(CP_UTF8, 0, line, n, u8.data(), bytes, nullptr, nullptr);
@@ -111,6 +123,12 @@ L"WeatherGap=35\r\n"
 L"; Show the chance of rain when it reaches RainThreshold % within the next RainHours hours\r\n"
 L"RainThreshold=30\r\n"
 L"RainHours=6\r\n"
+L"; Weather effects: abstract clouds and rain over the wallpaper, below the clock and icons (needs WeatherCity)\r\n"
+L"WeatherEffects=0\r\n"
+L"; How opaque the shapes get, %\r\n"
+L"WeatherEffectsOpacity=40\r\n"
+L"; Always show one effect instead of the real weather: clouds-light, clouds, clouds-heavy or rain (empty = the real weather)\r\n"
+L"WeatherEffectsForce=\r\n"
 L"; Show the weather line (ShowWeather=0 in a [Monitor ...] section hides it on that monitor)\r\n"
 L"ShowWeather=1\r\n"
 L"; Extras, each shown only when it matters:\r\n"
@@ -301,6 +319,9 @@ static void ReadClockKeys(const Src& ini, const Settings& d, Settings& s) {
     s.weatherSize      = Clamp(ReadNum(ini, L"WeatherSize", d.weatherSize), 4, 400);
     s.weatherGap       = Clamp(ReadNum(ini, L"WeatherGap", d.weatherGap), -500, 1000);
     s.rainThreshold    = Clamp(ReadNum(ini, L"RainThreshold", d.rainThreshold), 0, 100);
+    s.weatherEffects   = ReadBool(ini, L"WeatherEffects", d.weatherEffects);
+    s.weatherEffectsOpacity = Clamp(ReadNum(ini, L"WeatherEffectsOpacity", d.weatherEffectsOpacity), 0, 100);
+    s.weatherEffectsForce = ReadStr(ini, L"WeatherEffectsForce", d.weatherEffectsForce);
     s.transitionMs     = Clamp(ReadNum(ini, L"TransitionMs", d.transitionMs), 0, 5000);
     s.hour24           = ReadBool(ini, L"Hour24", d.hour24);
     s.leadingZero      = ReadBool(ini, L"LeadingZero", d.leadingZero);

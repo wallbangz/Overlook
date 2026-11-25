@@ -26,7 +26,7 @@ rc /nologo /fo obj\app.res res\app.rc || exit /b 1
 cl /nologo /std:c++20 /utf-8 /O2 /MT /EHsc /W4 /permissive- /GS /guard:cf ^
    /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN /DNOMINMAX /D_WIN32_WINNT=0x0A00 ^
    /Foobj\ /Fdobj\ ^
-   src\main.cpp src\settings.cpp src\desktop.cpp src\render.cpp src\wallpaper.cpp src\color.cpp src\weather.cpp src\weatherline.cpp src\selftest.cpp src\icons.cpp src\media.cpp src\inifile.cpp src\settingswindow.cpp src\settingsuia.cpp obj\app.res ^
+   src\main.cpp src\settings.cpp src\desktop.cpp src\render.cpp src\wallpaper.cpp src\color.cpp src\weather.cpp src\weatherline.cpp src\selftest.cpp src\icons.cpp src\media.cpp src\inifile.cpp src\settingswindow.cpp src\settingsuia.cpp src\weatherfx.cpp obj\app.res ^
    /Fe:bin\Overlook.exe ^
    /link /SUBSYSTEM:WINDOWS /MANIFEST:NO /OPT:REF /OPT:ICF /guard:cf ^
    user32.lib gdi32.lib shell32.lib ole32.lib advapi32.lib shcore.lib ^

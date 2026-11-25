@@ -19,6 +19,8 @@
 #include "icons.h"
 #include "settingswindow.h"
 #include "inifile.h"
+#include "weatherfx.h"
+#include "../res/resource.h"
 
 namespace {
 
@@ -273,6 +275,7 @@ struct Clock {
     Shown cur;
     bool animating = false;
     int darkState = -1;       // auto-contrast choice so far (-1 none, 0 light, 1 dark text), for hysteresis
+    std::wstring fxKey;       // weatherfx::Describe of the effect shown ("" = none built yet)
 };
 const double kContrastHysteresis = 4.0;   // L*: switch light <-> dark only this far past BrightThreshold
 std::vector<std::unique_ptr<Clock>> g_clocks;   // in z-order: the first sits directly below the icons
@@ -685,10 +688,80 @@ void Render(size_t i, bool animate) {
         media.c_str());
 }
 
+// ------------------------------------------------------------------ weather effects
+
+// The effect and how much of it (density: 1 = normal), from WeatherEffectsForce or the WMO code.
+weatherfx::Kind FxKindFor(const Settings& s, const WeatherReading* wr, float& density) {
+    using K = weatherfx::Kind;
+    density = 1;
+    const wchar_t* f = s.weatherEffectsForce.c_str();
+    if (_wcsicmp(f, L"clouds-light") == 0) { density = 0.5f; return K::Clouds; }
+    if (_wcsicmp(f, L"clouds") == 0) return K::Clouds;
+    if (_wcsicmp(f, L"clouds-heavy") == 0) { density = 1.6f; return K::Clouds; }
+    if (_wcsicmp(f, L"rain") == 0) return K::Rain;
+    if (!wr) return K::None;
+    const int c = wr->code;   // WMO weather interpretation code
+    if ((c >= 51 && c <= 67) || (c >= 80 && c <= 82) || c >= 95) return K::Rain;   // drizzle, rain, showers, storms
+    // 1 mainly clear, 2 partly cloudy, 3 overcast, 45/48 fog (snow: later)
+    if (c == 1) { density = 0.5f; return K::Clouds; }
+    if (c == 2) return K::Clouds;
+    if (c == 3 || c == 45 || c == 48) { density = 1.6f; return K::Clouds; }
+    return K::None;
+}
+
+weatherfx::Params FxParamsFor(const Clock& c) {
+    weatherfx::Params p;
+    const Settings& s = c.s;
+    if (!s.weatherEffects || Paused()) return p;
+    WeatherReading wr;
+    bool have = !g_s.weatherCity.empty() && WeatherLatest(g_s.weatherCity, wr);
+    if (have) {   // a reading older than 2 hours no longer says what the sky is doing
+        FILETIME now; GetSystemTimeAsFileTime(&now);
+        const ULONGLONG n = ((ULONGLONG)now.dwHighDateTime << 32) | now.dwLowDateTime,
+                        f = ((ULONGLONG)wr.fetchedUtc.dwHighDateTime << 32) | wr.fetchedUtc.dwLowDateTime;
+        have = n - f < 2ull * 3600 * 10000000;
+    }
+    p.kind = FxKindFor(s, have ? &wr : nullptr, p.density);
+    if (p.kind == weatherfx::Kind::None) return p;
+    p.width = c.mon.rc.right - c.mon.rc.left;
+    p.height = c.mon.rc.bottom - c.mon.rc.top;
+    p.dpi = (float)c.mon.dpi;
+    p.opacity = (float)(s.weatherEffectsOpacity / 100.0);
+    p.isDay = have ? wr.isDay : true;
+    // Light shapes on a dark wallpaper, mid-grey ones on a bright one (overcast, not a storm:
+    // the darker tone is for rain and thunder), tinted like the text.
+    WallpaperSample ws;
+    const RECT top{ c.mon.rc.left, c.mon.rc.top, c.mon.rc.right, c.mon.rc.top + p.height / 2 };
+    p.color = RGB(0xF2, 0xF5, 0xFA);
+    if (SampleWallpaper(c.mon.rc, top, ws))
+        p.color = TintColor(ws.lightness > 60 ? RGB(0x6B, 0x72, 0x80) : p.color, ws, 0.35);
+    if (have && wr.hasWind) {   // the wind blows FROM windDir (0 = north): rain drifts the other way
+        const double kmh = wr.fahrenheit ? wr.windSpeed * 1.609 : wr.windSpeed;
+        p.windVx = (float)std::clamp(-std::sin(wr.windDir * 3.14159265 / 180) * kmh * 6.0, -400.0, 400.0);
+        p.windVx = std::round(p.windVx / 20) * 20;   // in steps, so a small change doesn't rebuild the scene
+    }
+    return p;
+}
+
+// Builds, swaps or removes each clock's effect when what it should show has changed.
+void UpdateEffects() {
+    for (auto& c : g_clocks) {
+        if (!c->hwnd) continue;
+        const weatherfx::Params p = FxParamsFor(*c);
+        const std::wstring key = p.kind == weatherfx::Kind::None ? L"none" : weatherfx::Describe(p);
+        if (key == c->fxKey) continue;
+        Log(L"effects %s: %s", c->mon.device.c_str(), key.c_str());
+        if (p.kind == weatherfx::Kind::None) weatherfx::Clear(g_r, c->hwnd);
+        else if (!weatherfx::Show(g_r, c->hwnd, p)) Log(L"effects %s: failed", c->mon.device.c_str());
+        c->fxKey = key;
+    }
+}
+
 void RenderAll(bool animate = false) {
     if (g_clocks.empty() || Paused()) return;   // drawn when the displays come back
     RefreshSlot();
     for (size_t i = 0; i < g_clocks.size(); ++i) Render(i, animate);
+    UpdateEffects();
     if (!AnyAnimating()) TrimMemory();   // idle until the next minute: hand the pages back
 }
 
@@ -796,6 +869,31 @@ bool Attach(const DesktopHost& h, std::vector<Wanted>& want) {
     return true;
 }
 
+// The first lines of a log: what a bug report needs to know about this PC. The exe's folder is
+// shown relative to the user's profile, so the account name stays out of the file.
+void LogHeader() {
+    if (!g_logEnabled) return;
+    std::wstring exe = ExePath();
+    wchar_t profile[MAX_PATH] = L"";
+    const DWORD pl = GetEnvironmentVariableW(L"USERPROFILE", profile, MAX_PATH);
+    if (pl && pl < MAX_PATH && _wcsnicmp(exe.c_str(), profile, pl) == 0) exe = L"%USERPROFILE%" + exe.substr(pl);
+    Log(L"---- start Overlook %hs, %s", OVERLOOK_VERSION_STR, exe.c_str());
+    RTL_OSVERSIONINFOW v{ sizeof(v) };
+    using RtlGetVersionFn = LONG(WINAPI*)(RTL_OSVERSIONINFOW*);
+    if (auto get = (RtlGetVersionFn)(void*)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlGetVersion")) get(&v);
+    DWORD ubr = 0, cb = sizeof(ubr);
+    RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"UBR", RRF_RT_REG_DWORD,
+                 nullptr, &ubr, &cb);
+    Log(L"windows %lu.%lu.%lu.%lu", v.dwMajorVersion, v.dwMinorVersion, v.dwBuildNumber, ubr);
+    for (const MonitorInfo& m : EnumMonitors()) {
+        DEVMODEW dm{}; dm.dmSize = sizeof(dm);
+        const DWORD hz = EnumDisplaySettingsW(m.device.c_str(), ENUM_CURRENT_SETTINGS, &dm) ? dm.dmDisplayFrequency : 0;
+        Log(L"monitor %s \"%s\": %ldx%ld at %ld,%ld, %u dpi (%u%%), %lu Hz%s", m.device.c_str(), m.name.c_str(),
+            m.rc.right - m.rc.left, m.rc.bottom - m.rc.top, m.rc.left, m.rc.top, m.dpi, m.dpi * 100 / 96, hz,
+            m.primary ? L", primary" : L"");
+    }
+}
+
 // Called whenever the desktop, the monitors or the settings may have changed: (re)creates the
 // clock windows if needed and hands each clock its monitor and settings.
 // Returns true if the windows were (re)created (and drawn).
@@ -855,7 +953,11 @@ void SetPaused(bool displayOff, bool locked) {
     if (was == Paused()) return;
     Log(L"%s (display %s, session %s)", Paused() ? L"paused" : L"resumed", displayOff ? L"off" : L"on",
         locked ? L"locked" : L"unlocked");
-    if (Paused()) { KillTimer(g_ctl, TIMER_MINUTE); return; }
+    if (Paused()) {
+        KillTimer(g_ctl, TIMER_MINUTE);
+        UpdateEffects();   // nothing animates while nobody can see it: DWM can go idle
+        return;
+    }
     Refresh();   // catch up at once, no transition: the screen has just come back
     if (g_weatherDue) {
         g_weatherDue = false;
@@ -896,6 +998,7 @@ void ApplySettings() {
     g_s = LoadSettings();
     ++g_styleGen;   // fonts, sizes, shadow... may have changed: redraw even if the text didn't
     g_logEnabled = g_s.log;
+    if (g_s.log && !old.log) LogHeader();   // logging just switched on: say what this is running on
     g_iniTime = IniWriteTime();
     if (g_s.startWithWindows != IsAutostartEnabled()) SetAutostart(g_s.startWithWindows);
     UpdateTray();
@@ -1449,7 +1552,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR cmdLine, int) {
     g_s = LoadSettings();
     g_logEnabled = g_s.log;
     g_iniTime = IniWriteTime();
-    Log(L"---- start %s", ExePath().c_str());
+    LogHeader();
     if (!g_r.Init()) {
         Log(L"renderer init failed");
         MessageBoxW(nullptr, L"Overlook could not initialise Direct2D/DirectWrite or load its fonts.", L"Overlook", MB_ICONERROR);

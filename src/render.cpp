@@ -807,10 +807,28 @@ ClockRenderer::Target* ClockRenderer::EnsureTarget(HWND hwnd) {
     t.hwnd = hwnd;
     HRESULT hr = dcomp_->CreateTargetForHwnd(hwnd, TRUE, &t.target);
     if (FAILED(hr)) { Log(L"CreateTargetForHwnd failed 0x%08X", hr); return nullptr; }
-    if (FAILED(dcomp_->CreateVisual(&t.visual))) return nullptr;
-    t.target->SetRoot(t.visual.Get());
+    if (FAILED(dcomp_->CreateVisual(&t.root)) || FAILED(dcomp_->CreateVisual(&t.fx)) ||
+        FAILED(dcomp_->CreateVisual(&t.visual)))
+        return nullptr;
+    t.root->AddVisual(t.fx.Get(), FALSE, nullptr);
+    t.root->AddVisual(t.visual.Get(), TRUE, t.fx.Get());   // the text above the effects
+    t.target->SetRoot(t.root.Get());
     targets_.push_back(std::move(t));
     return &targets_.back();
+}
+
+IDCompositionVisual* ClockRenderer::FxLayer(HWND hwnd, std::vector<ComPtr<IUnknown>>** keep) {
+    Target* t = EnsureTarget(hwnd);
+    if (!t) return nullptr;
+    if (keep) *keep = &t->fxKeep;
+    return t->fx.Get();
+}
+
+bool ClockRenderer::Commit() {
+    if (!dcomp_) return false;
+    HRESULT hr = dcomp_->Commit();
+    if (FAILED(hr)) { Log(L"Commit failed 0x%08X", hr); return false; }
+    return true;
 }
 
 // Copies a frame bitmap 1:1 into a composition surface of the same size.
