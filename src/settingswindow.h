@@ -19,6 +19,7 @@ struct SettingsHost {
     HWND ctl = nullptr;       // gets reloadMsg after each write
     UINT reloadMsg = 0;
     std::vector<SettingsMonitor> (*monitors)() = nullptr;
+    void (*checkUpdates)() = nullptr;   // About page: "Check for updates" (the result arrives as a reload)
 };
 
 void OpenSettingsWindow(HINSTANCE inst, const SettingsHost& host);   // or brings the open one forward

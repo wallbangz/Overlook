@@ -33,7 +33,8 @@ enum class Kind {
     Static,     // text only (the DEBUG MODE footer): never focused or clicked
 };
 
-enum Action { kNone, kUndo, kOpenIni, kAppsDefault, kScope, kUrl, kOpenFolder, kOpenLog, kCopyReport };
+enum Action { kNone, kUndo, kOpenIni, kAppsDefault, kScope, kUrl, kOpenFolder, kOpenLog, kCopyReport,
+              kUpdateStatus, kCheckUpdates, kGetUpdate, kWhatsNew };   // the last four: the update check (About page)
 
 struct Option { std::wstring value, label; };
 
@@ -252,6 +253,7 @@ void UiaRaiseFocus(Window& w, int i);
 void UiaRaiseToggle(Window& w, int i, bool on);
 void UiaRaiseValue(Window& w, int i);
 void UiaRaiseName(Window& w, int i, const std::wstring& was);
+void UiaRaiseNotice(Window& w, int i, const std::wstring& text);   // Narrator reads text (e.g. "Up to date")
 LRESULT UiaGetObject(Window& w, WPARAM wp, LPARAM lp);
 void UiaDetach(Window& w);
 

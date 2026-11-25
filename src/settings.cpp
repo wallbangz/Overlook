@@ -231,6 +231,11 @@ L"; Start with Windows (HKCU Run key). Also toggled from the tray menu.\r\n"
 L"StartWithWindows=0\r\n"
 L"; Notification-area icon with Settings / Edit settings file / Reload / Start with Windows / Exit\r\n"
 L"TrayIcon=1\r\n"
+L"; Once a day, ask GitHub whether a newer release exists (one anonymous request to api.github.com).\r\n"
+L"; A newer one shows in the tray menu and on the settings window's About page; nothing is installed.\r\n"
+L"CheckForUpdates=1\r\n"
+L"; stable, or beta to be told about pre-releases (vX.Y.Z-beta.N) too\r\n"
+L"UpdateChannel=stable\r\n"
 L"; Hide every clock (also from the tray menu). Show=0 in a [Monitor ...] section also hides one monitor's clock.\r\n"
 L"HideClocks=0\r\n"
 L"; Monitors whose clock is switched off in the tray menu, by name, separated by ;\r\n"
@@ -240,6 +245,7 @@ L"Log=0\r\n"
 L"\r\n"
 L"; Per-monitor overrides: a [Monitor <which>] section (same names as Monitor=) can set any key above\r\n"
 L"; except Monitor, WeatherCity, WeatherUnits, RainHours, NowPlayingApps, StartWithWindows, TrayIcon,\r\n"
+L"; CheckForUpdates, UpdateChannel,\r\n"
 L"; HideClocks, HiddenMonitors and Log.\r\n"
 L"; For example:\r\n"
 L";\r\n"
@@ -415,6 +421,8 @@ Settings LoadSettings() {
     s.rainHours        = Clamp(ReadNum(ini, L"RainHours", d.rainHours), 1, 48);
     s.startWithWindows = ReadBool(ini, L"StartWithWindows", d.startWithWindows);
     s.trayIcon         = ReadBool(ini, L"TrayIcon", d.trayIcon);
+    s.checkForUpdates  = ReadBool(ini, L"CheckForUpdates", d.checkForUpdates);
+    s.updateBeta       = _wcsicmp(ReadStr(ini, L"UpdateChannel", L"stable").c_str(), L"beta") == 0;
     s.hideClocks       = ReadBool(ini, L"HideClocks", d.hideClocks);
     s.hiddenMonitors   = ReadStr(ini, L"HiddenMonitors", d.hiddenMonitors);
     s.nowPlayingApps   = ReadStr(ini, L"NowPlayingApps", d.nowPlayingApps);

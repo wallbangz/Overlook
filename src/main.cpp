@@ -22,6 +22,7 @@
 #include "inifile.h"
 #include "weatherfx.h"
 #include "../res/resource.h"
+#include "update.h"
 
 namespace {
 
@@ -30,10 +31,14 @@ const wchar_t kClockClass[] = L"OverlookClock";
 const wchar_t kMutexName[]  = L"Local\\Overlook-7f3c2a1e";
 
 enum : UINT_PTR { TIMER_MINUTE = 1, TIMER_RELOAD, TIMER_REFRESH, TIMER_ATTACH, TIMER_HEALTH, TIMER_WALLPAPER,
-                  TIMER_WEATHER, TIMER_MEDIA, TIMER_COVER };
-enum : UINT { WM_APP_TRAY = WM_APP + 1, WM_APP_RELOAD, WM_APP_REATTACH, WM_APP_WEATHER, WM_APP_MEDIA, WM_APP_SETTINGS };
+                  TIMER_WEATHER, TIMER_MEDIA, TIMER_COVER, TIMER_UPDATE };
+enum : UINT { WM_APP_TRAY = WM_APP + 1, WM_APP_RELOAD, WM_APP_REATTACH, WM_APP_WEATHER, WM_APP_MEDIA, WM_APP_SETTINGS,
+              WM_APP_UPDATE };
 const UINT kWeatherEveryMs = 30 * 60 * 1000;
-enum : UINT { ID_RELOAD = 100, ID_EDIT, ID_SETTINGS, ID_FOLDER, ID_AUTOSTART, ID_EXIT, ID_HIDE, ID_WEATHER_NOW, ID_MONITOR = 200 };
+// Update check: the first look a short while after start, then an hourly look at whether a day has passed.
+const UINT kUpdateFirstMs = 2 * 60 * 1000, kUpdateEveryMs = 60 * 60 * 1000;
+enum : UINT { ID_RELOAD = 100, ID_EDIT, ID_SETTINGS, ID_FOLDER, ID_AUTOSTART, ID_EXIT, ID_HIDE, ID_WEATHER_NOW, ID_UPDATE,
+              ID_MONITOR = 200 };
 
 HINSTANCE g_inst;
 HWND g_ctl;
@@ -187,6 +192,22 @@ void ScheduleMediaLinger() {
     KillTimer(g_ctl, TIMER_MEDIA);
 }
 
+// ------------------------------------------------------------------ update check
+
+// The settings window's "Check for updates" (manual: runs even with CheckForUpdates=0).
+void CheckUpdatesNow() {
+    if (UpdateCheckAsync(g_ctl, WM_APP_UPDATE, g_s.updateBeta)) Log(L"update: checking");
+}
+
+void ScheduleUpdates(UINT firstMs) {
+    if (g_s.checkForUpdates) SetTimer(g_ctl, TIMER_UPDATE, firstMs, nullptr);
+    else KillTimer(g_ctl, TIMER_UPDATE);
+}
+
+void OpenUrl(const std::wstring& url) {
+    ShellExecuteW(nullptr, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+}
+
 // ------------------------------------------------------------------ tray
 
 void UpdateTray(bool remove = false) {
@@ -224,6 +245,10 @@ void AppendMonitorItems(HMENU m);
 void ShowTrayMenu() {
     HMENU m = CreatePopupMenu();
     AppendMenuW(m, MF_STRING | MF_GRAYED, 0, L"Overlook");
+    if (const UpdateStatus u = UpdateCurrent(); u.newer) {
+        const std::wstring tag = u.latest.tag[0] == L'v' || u.latest.tag[0] == L'V' ? L"v" + u.latest.tag.substr(1) : L"v" + u.latest.tag;
+        AppendMenuW(m, MF_STRING, ID_UPDATE, (L"Update available: " + tag).c_str());
+    }
     AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(m, MF_STRING | (g_s.hideClocks ? MF_CHECKED : 0), ID_HIDE, L"Hide clocks");
     AppendMonitorItems(m);
@@ -1337,6 +1362,10 @@ void ApplySettings() {
         if (!g_s.weatherCity.empty()) SetTimer(g_ctl, TIMER_WEATHER, kWeatherEveryMs, nullptr);
         FetchWeather();
     }
+    if (g_s.checkForUpdates != old.checkForUpdates || g_s.updateBeta != old.updateBeta) {
+        UpdateInit(g_s.checkForUpdates);
+        ScheduleUpdates(10 * 1000);   // switched on, or a new channel: look soon
+    }
     SettingsWindowReloaded();
 }
 
@@ -1404,6 +1433,10 @@ LRESULT CALLBACK CtlProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             KillTimer(hwnd, TIMER_ATTACH);
             EnsureAttached();
             break;
+        case TIMER_UPDATE:   // hourly: check if a day has passed (not while nothing is visible)
+            ScheduleUpdates(kUpdateEveryMs);
+            if (g_s.checkForUpdates && !Paused() && UpdateDue(g_s.updateBeta)) CheckUpdatesNow();
+            break;
         case TIMER_HEALTH:
             KillTimer(hwnd, TIMER_HEALTH);
             if (!Attached()) { Log(L"health check: re-attaching"); EnsureAttached(); }
@@ -1427,10 +1460,26 @@ LRESULT CALLBACK CtlProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         host.ctl = hwnd;
         host.reloadMsg = WM_APP_RELOAD;
         host.monitors = SettingsMonitors;
+        host.checkUpdates = CheckUpdatesNow;
         OpenSettingsWindow(g_inst, host);
         return 0;
     }
 
+    case WM_APP_UPDATE:   // an update check finished (posted from its worker thread)
+        if (g_trayAdded && UpdateTakeNotify()) {   // once per newer version
+            const UpdateStatus u = UpdateCurrent();
+            NOTIFYICONDATAW nid{ sizeof(nid) };
+            nid.hWnd = hwnd;
+            nid.uID = 1;
+            nid.uFlags = NIF_INFO;
+            nid.dwInfoFlags = NIIF_USER | NIIF_LARGE_ICON | NIIF_RESPECT_QUIET_TIME;
+            nid.hBalloonIcon = g_trayIcon;
+            swprintf_s(nid.szInfoTitle, L"%s", UpdateStatusText(u).c_str());
+            wcscpy_s(nid.szInfo, L"Get it from the Overlook icon's menu, or from Settings > About.");
+            Shell_NotifyIconW(NIM_MODIFY, &nid);
+        }
+        SettingsWindowReloaded();
+        return 0;
     case WM_APP_MEDIA:   // track, playback state or player changed (posted from the media watcher)
         RenderAll(true);
         ScheduleMediaLinger();
@@ -1492,6 +1541,9 @@ LRESULT CALLBACK CtlProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case NIN_KEYSELECT:
             ShowTrayMenu();
             break;
+        case NIN_BALLOONUSERCLICK:   // the update notification: show what's new
+            OpenUrl(UpdatePageUrl(UpdateCurrent()));
+            break;
         }
         return 0;
     case WM_COMMAND:
@@ -1517,6 +1569,7 @@ LRESULT CALLBACK CtlProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             SaveBool(L"HideClocks", !g_s.hideClocks);
             PostMessageW(hwnd, WM_APP_RELOAD, 0, 0);
             break;
+        case ID_UPDATE: OpenUrl(UpdateDownloadUrl(UpdateCurrent())); break;
         case ID_EXIT: DestroyWindow(hwnd); break;
         default:
             if (LOWORD(wp) >= ID_MONITOR && LOWORD(wp) < ID_MONITOR + g_trayMonitors.size()) {
@@ -1827,7 +1880,12 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR cmdLine, int) {
         while (!dir.empty() && (iswspace(dir.back()) || dir.back() == L'"')) dir.pop_back();
         return RunIniTest(dir.empty() ? ExeDir() : dir);
     }
-    if (const wchar_t* t = wcsstr(cmdLine, L"--weather-test")) {
+    if (const wchar_t* t = wcsstr(cmdLine, L"--update-test")) {   // --update-test <folder>: version and JSON checks
+        std::wstring dir = t + wcslen(L"--update-test");
+        while (!dir.empty() && (iswspace(dir.front()) || dir.front() == L'"')) dir.erase(dir.begin());
+        while (!dir.empty() && (iswspace(dir.back()) || dir.back() == L'"')) dir.pop_back();
+        return RunUpdateTest(dir.empty() ? ExeDir() : dir);
+    }    if (const wchar_t* t = wcsstr(cmdLine, L"--weather-test")) {
         std::wstring dir = t + wcslen(L"--weather-test");
         while (!dir.empty() && (iswspace(dir.front()) || dir.front() == L'"')) dir.erase(dir.begin());
         while (!dir.empty() && (iswspace(dir.back()) || dir.back() == L'"')) dir.pop_back();
@@ -1912,6 +1970,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR cmdLine, int) {
     g_powerNotify = RegisterPowerSettingNotification(g_ctl, &kConsoleDisplayState, DEVICE_NOTIFY_WINDOW_HANDLE);
     WTSRegisterSessionNotification(g_ctl, NOTIFY_FOR_THIS_SESSION);
     UpdateTray();
+    UpdateInit(g_s.checkForUpdates);   // a newer release seen earlier is in the tray menu at once
+    ScheduleUpdates(kUpdateFirstMs);
     Refresh();   // (starts the media watcher if wanted)
     if (settingsCmd) PostMessageW(g_ctl, WM_APP_SETTINGS, 0, 0);
     if (!g_s.weatherCity.empty()) {   // a cached reading (if recent) is already shown; refresh it now
