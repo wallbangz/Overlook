@@ -108,7 +108,7 @@ struct Settings {
     bool   updateBeta    = false;    // UpdateChannel=beta: pre-releases count too
     bool   show          = true;     // per monitor: this monitor shows a clock (tray menu checkboxes)
     bool   hideClocks    = false;    // app-wide: hide every clock (tray menu)
-    std::wstring hiddenMonitors;     // app-wide: "Dell U2720Q;\\.\DISPLAY3" - clocks switched off in the tray menu
+    std::wstring hiddenMonitors;     // app-wide: "Monitor name;\\.\DISPLAY3" - clocks switched off in the tray menu
     bool   log           = false;
     bool   logPrivate    = false;    // app-wide: wallpaper names, track titles and the weather place unmasked in the log
 };

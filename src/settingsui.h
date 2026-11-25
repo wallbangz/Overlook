@@ -63,7 +63,7 @@ struct Ctl {
     // State
     std::wstring value;           // effective value, as ini text
     bool overridden = false;      // set in the scope's own [Monitor ...] section
-    std::wstring elsewhere;       // All monitors: "LG OLED keeps its own: 16.2 %" (monitors that override it)
+    std::wstring elsewhere;       // All monitors: "Monitor 2 keeps its own: 16.2 %" (monitors that override it)
     std::vector<std::wstring> elsewhereSections;   // ... and the sections that do
     bool enabled = true;
     bool visible = true;
