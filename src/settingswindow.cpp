@@ -308,7 +308,7 @@ void Window::BuildControls() {
     header(2, L"Weather effects");
     note(2, L"", kEffectsCity);
     row({ add(Kind::Toggle, 2, L"WeatherEffects", L"Weather effects",
-              L"Clouds, rain and snow over the wallpaper, below the clock and icons", L"0") });
+              L"Clouds, rain, snow and fog over the wallpaper, below the clock and icons", L"0") });
     {
         const int f = add(Kind::Combo, 2, L"WeatherEffectsForce", L"Show", L"Preview an effect instead of the real weather", L"");
         ctls[f].options = { { L"", L"The real weather" }, { L"clouds-light", L"Light clouds" }, { L"clouds", L"Clouds" },
@@ -318,7 +318,7 @@ void Window::BuildControls() {
                             { L"snow-heavy", L"Heavy snow" } };
         ctls[f].dependsOn = L"WeatherEffects";
         row({ f });
-        const int o = slider(2, L"WeatherEffectsOpacity", L"Effects opacity", L"", L"40", 0, 100, 1, 10, L" %");
+        const int o = slider(2, L"WeatherEffectsOpacity", L"Effects opacity", L"How visible the shapes are", L"40", 0, 100, 1, 10, L" %");
         ctls[o].dependsOn = L"WeatherEffects";
         row({ o });
         const int l = add(Kind::Toggle, 2, L"WeatherEffectsLightning", L"Lightning",
@@ -397,7 +397,6 @@ void Window::BuildControls() {
         ctls[p].dependsOn = L"Log";
         row({ p });
     }
-    link(5, L"Log file", L"Shows Overlook.log in its folder", L"Open log folder", kOpenLog, L"");
 
     // Debug (kDebugPage): hidden test settings for the weather effects. Every key is app-wide and
     // only read while DebugMode=1, so leftovers do nothing once debug mode is off.
@@ -449,8 +448,7 @@ void Window::BuildControls() {
         }
         toggle(L"DebugNight", L"Pretend it's night", L"Draws the effects as they look at night");
         toggle(L"DebugIgnorePauses", L"Ignore pauses",
-               L"Effects keep running when covered by a maximised window, on battery or with animations off; they still "
-               L"stop while the display is off or locked");
+               L"Keep running when covered, on battery or with animations off");
         header(d, L"Feedback");
         copyLink_ = link(d, L"Copy report", L"Copies what the effects are doing, for a GitHub issue", kCopyText,
                          kCopyReport, L"");
