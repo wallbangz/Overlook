@@ -520,13 +520,15 @@ bool BuildLightning(IDCompositionDevice* dcomp, IDCompositionVisual* layer, Keep
     keep.push_back(glow);
     bytes += size_t(kGlow) * kGlow * 4;
 
-    const double W = p.width, H = p.height, gain = p.opacity / 0.4;
+    // On a bright wallpaper the glow lies over dark storm clouds and has a pale sky around it, so
+    // it needs more strength to read as a flash.
+    const double W = p.width, H = p.height, gain = p.opacity / 0.4 * (Luminance(p.color) < 0.6 ? 2.2 : 1.0);
     Rng rng(p.seed ^ 0x7C3Fu);
     std::vector<Seg> op, xs;
     double t = rng.Range(3, 9), last = 0, lastX = 0;
     int flashes = 0;
     while (t < kStormPeriod - 1.5) {
-        const double peak = std::min(rng.Range(0.16, 0.28) * gain, 0.5), up = 0.08, down = rng.Range(0.35, 0.55);
+        const double peak = std::min(rng.Range(0.16, 0.28) * gain, 0.6), up = 0.08, down = rng.Range(0.35, 0.55);
         const double x = rng.Range(0.1, 0.9) * W;
         op.push_back({ last, t - last, { 0, 0, 0, 0 } });                       // dark
         op.push_back({ t, up, { 0, peak / up, 0, 0 } });                       // rise
@@ -749,9 +751,13 @@ bool Show(ClockRenderer& r, HWND hwnd, const Params& day, double fadeSeconds) {
                          BuildSnow(dcomp, ice.Get(), *keep, pel, bytes, true);
                     if (ice) keep->push_back(ice);
                 }
-                if (ok && p.lightning) {   // between the rain and the clouds: it lights them from behind
+                if (ok && p.lightning) {
+                    // On a dark wallpaper, between the rain and the clouds: it lights them from behind.
+                    // On a bright one a pale glow behind them vanishes into the sky, so it goes over
+                    // the dark storm clouds instead and lights them up.
+                    IDCompositionVisual* below = Luminance(p.color) < 0.6 ? sky.Get() : fall.Get();
                     ComPtr<IDCompositionVisual> storm;
-                    ok = SUCCEEDED(dcomp->CreateVisual(&storm)) && SUCCEEDED(layer->AddVisual(storm.Get(), TRUE, fall.Get())) &&
+                    ok = SUCCEEDED(dcomp->CreateVisual(&storm)) && SUCCEEDED(layer->AddVisual(storm.Get(), TRUE, below)) &&
                          BuildLightning(dcomp, storm.Get(), *keep, p, bytes);
                     if (storm) keep->push_back(storm);
                 }
