@@ -4,6 +4,10 @@ What changed in each version of Overlook. Each release on GitHub shows its secti
 
 ## [Unreleased]
 
+## [0.4.0-beta.1] - 2026-11-25
+
+A beta for trying the weather effects; settings and the ini work as in 0.3.1.
+
 ### Added
 - **Weather effects** (`WeatherEffects`, off by default; Settings › Weather): soft clouds, fog, rain, freezing rain and sleet, thunderstorms with lightning glows, and snow drift over the wallpaper, below the clock and icons. They follow the current weather and wind, are fainter and bluer at night, and are animated by Windows, so Overlook uses almost no CPU while they run. Choose the real weather or one effect, the opacity, and whether lightning shows. They need a weather city.
 - Effects pause behind maximised or full-screen windows, on battery (unless **Run on battery** is on), in Energy Saver, with Windows animations turned off, in remote desktop sessions, and while the screen is off or locked.
@@ -11,6 +15,11 @@ What changed in each version of Overlook. Each release on GitHub shows its secti
 
 ### Changed
 - The log carries the full date on each line, starts with the version, Windows build and monitors, and rolls over to `Overlook.log.1` at 1 MB.
+
+### Testing the beta
+- **Ctrl+Shift+D** in the settings window opens a hidden **Debug** page: simulate any weather, change the wind and the amount, preview the night look, keep effects running when they would pause, and **Copy report** for an issue. A **DEBUG MODE** label shows in the settings window and under each clock while it is on; Ctrl+Shift+D again turns it off.
+- To hear about later betas, add `UpdateChannel=beta` under `[Clock]` in `Overlook.ini`.
+
 ## [0.3.1] - 2026-11-25
 
 ### Added
@@ -52,7 +61,8 @@ First public release.
 - OLED care: slow pixel shift and night dimming.
 - Pauses while the screen is off or locked; tray menu to hide the clocks or pick monitors; Start with Windows.
 
-[Unreleased]: https://github.com/wallbangz/Overlook/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/wallbangz/Overlook/compare/v0.4.0-beta.1...HEAD
+[0.4.0-beta.1]: https://github.com/wallbangz/Overlook/compare/v0.3.1...v0.4.0-beta.1
 [0.3.1]: https://github.com/wallbangz/Overlook/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/wallbangz/Overlook/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/wallbangz/Overlook/compare/v0.2.0...v0.2.1
