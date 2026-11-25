@@ -44,3 +44,5 @@ jobs:
           files: Overlook.zip
           body_path: release-notes.md
           generate_release_notes: true
+          # vX.Y.Z-beta.N tags are pre-releases: never "Latest", so the stable update check skips them
+          prerelease: ${{ contains(github.ref_name, '-') }}
