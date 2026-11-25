@@ -10,7 +10,7 @@ class ClockRenderer;
 // forever, so DWM does the per-frame work and this process stays asleep.
 namespace weatherfx {
 
-enum class Kind { None, Clouds, Rain };
+enum class Kind { None, Clouds, Rain, Snow, Fog };
 
 struct Params {
     Kind kind = Kind::None;
@@ -21,6 +21,8 @@ struct Params {
     bool isDay = true;
     float windVx = 0;            // horizontal drift, DIPs per second (+ = to the right)
     float density = 1;           // 1 = normal; scales the number of particles
+    bool lightning = false;      // thunderstorm: soft glows in the sky now and then (rain only)
+    bool icy = false;            // freezing drizzle/rain: paler, slower, heavier drops (rain only)
     unsigned seed = 1;           // the same seed draws the same scene (self-tests)
 };
 

@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <shellapi.h>
 #include <wtsapi32.h>
+#include <dwmapi.h>
 #include <string>
 #include <cmath>
 #include <algorithm>
@@ -29,7 +30,7 @@ const wchar_t kClockClass[] = L"OverlookClock";
 const wchar_t kMutexName[]  = L"Local\\Overlook-7f3c2a1e";
 
 enum : UINT_PTR { TIMER_MINUTE = 1, TIMER_RELOAD, TIMER_REFRESH, TIMER_ATTACH, TIMER_HEALTH, TIMER_WALLPAPER,
-                  TIMER_WEATHER, TIMER_MEDIA };
+                  TIMER_WEATHER, TIMER_MEDIA, TIMER_COVER };
 enum : UINT { WM_APP_TRAY = WM_APP + 1, WM_APP_RELOAD, WM_APP_REATTACH, WM_APP_WEATHER, WM_APP_MEDIA, WM_APP_SETTINGS };
 const UINT kWeatherEveryMs = 30 * 60 * 1000;
 enum : UINT { ID_RELOAD = 100, ID_EDIT, ID_SETTINGS, ID_FOLDER, ID_AUTOSTART, ID_EXIT, ID_HIDE, ID_WEATHER_NOW, ID_MONITOR = 200 };
@@ -136,7 +137,7 @@ void FetchWeather() {
     r.fahrenheit = g_s.weatherFahrenheit;
     r.rainHours = (int)g_s.rainHours;
     r.airQuality = g_airWanted = AnyClockWants(&Settings::airQuality);
-    if (WeatherFetchAsync(g_ctl, WM_APP_WEATHER, r)) Log(L"weather: fetching for '%s'", r.city.c_str());
+    if (WeatherFetchAsync(g_ctl, WM_APP_WEATHER, r)) Log(L"weather: fetching for '%s'", Private(r.city).c_str());
 }
 
 void Refresh(bool animate = false);
@@ -276,6 +277,7 @@ struct Clock {
     bool animating = false;
     int darkState = -1;       // auto-contrast choice so far (-1 none, 0 light, 1 dark text), for hysteresis
     std::wstring fxKey;       // weatherfx::Describe of the effect shown ("" = none built yet)
+    std::wstring fxBlocked;   // why its effect is paused ("" = it may run), for the log
 };
 const double kContrastHysteresis = 4.0;   // L*: switch light <-> dark only this far past BrightThreshold
 std::vector<std::unique_ptr<Clock>> g_clocks;   // in z-order: the first sits directly below the icons
@@ -612,6 +614,16 @@ double LegibilityAt(const Settings& s, const MonitorInfo& mon, const FrameLayout
     return need;
 }
 
+// Debug mode (settings window, Ctrl+Shift+D) says so under every clock, so screenshots and
+// feedback make clear the effects may be simulated.
+void ShowDebugBadge(const Clock& c) {
+    if (!c.hwnd) return;
+    const RECT& rc = c.cur.rc;
+    const int gap = (int)lround(6 * c.mon.dpi / 96.0);
+    g_r.ShowBadge(c.hwnd, g_s.debugMode ? L"DEBUG MODE" : L"", (rc.left + rc.right) / 2 - c.winRc.left,
+                  c.cur.rc.top + c.cur.lay.g.lines.bottom + gap - c.winRc.top, (float)c.mon.dpi);
+}
+
 void Render(size_t i, bool animate) {
     Clock& c = *g_clocks[i];
     if (!c.hwnd) return;
@@ -663,6 +675,7 @@ void Render(size_t i, bool animate) {
     if (c.cur.bmp && c.cur.hwnd == c.hwnd && c.cur.key == f.key && EqualRect(&c.cur.rc, &f.rc) &&
         EqualRect(&c.cur.win, &f.win) && c.cur.lay.dpi == f.lay.dpi) {
         PlaceWindow(i);
+        ShowDebugBadge(c);
         Log(L"render %s: unchanged", mon.device.c_str());
         return;
     }
@@ -683,36 +696,79 @@ void Render(size_t i, bool animate) {
     } else {
         ShowSingle(c);
     }
+    ShowDebugBadge(c);
     Log(L"render %s %s on %s (%d dpi) at %d,%d %dx%d%s%s [%s] [%s]", date.c_str(), time.c_str(), mon.device.c_str(),
-        mon.dpi, pos.x, pos.y, g.width, g.height, night ? L" night" : L"", anim ? L" (transition)" : L"", weather.c_str(),
-        media.c_str());
+        mon.dpi, pos.x, pos.y, g.width, g.height, night ? L" night" : L"", anim ? L" (transition)" : L"",
+        Private(weather).c_str(), Private(media).c_str());
 }
 
 // ------------------------------------------------------------------ weather effects
 
-// The effect and how much of it (density: 1 = normal), from WeatherEffectsForce or the WMO code.
-weatherfx::Kind FxKindFor(const Settings& s, const WeatherReading* wr, float& density) {
+// The effect, how much of it (density: 1 = normal) and its variants (lightning, icy), from
+// WeatherEffectsForce or the WMO code. Lightning also needs WeatherEffectsLightning.
+void FxKindFor(const Settings& s, const WeatherReading* wr, weatherfx::Params& p) {
     using K = weatherfx::Kind;
-    density = 1;
-    const wchar_t* f = s.weatherEffectsForce.c_str();
-    if (_wcsicmp(f, L"clouds-light") == 0) { density = 0.5f; return K::Clouds; }
-    if (_wcsicmp(f, L"clouds") == 0) return K::Clouds;
-    if (_wcsicmp(f, L"clouds-heavy") == 0) { density = 1.6f; return K::Clouds; }
-    if (_wcsicmp(f, L"rain") == 0) return K::Rain;
-    if (!wr) return K::None;
-    const int c = wr->code;   // WMO weather interpretation code
-    if ((c >= 51 && c <= 67) || (c >= 80 && c <= 82) || c >= 95) return K::Rain;   // drizzle, rain, showers, storms
-    // 1 mainly clear, 2 partly cloudy, 3 overcast, 45/48 fog (snow: later)
-    if (c == 1) { density = 0.5f; return K::Clouds; }
-    if (c == 2) return K::Clouds;
-    if (c == 3 || c == 45 || c == 48) { density = 1.6f; return K::Clouds; }
-    return K::None;
+    struct Choice { const wchar_t* force; int code; K kind; float density; bool lightning, icy; };
+    // Every effect, by its WeatherEffectsForce name and by WMO code. Drizzle (51-57) is light,
+    // rain (61-67) and showers (80-82) go light/moderate/heavy by their codes, freezing drizzle
+    // and rain (56/57/66/67) are icy, thunderstorms (95-99) are heavy with lightning; snow
+    // (71/73/75), snow grains (77, fine and light), snow showers (85/86); 1 mainly clear,
+    // 2 partly cloudy, 3 overcast; fog and rime fog (45/48).
+    static const Choice kChoices[] = {
+        { L"clouds-light", 1, K::Clouds, 0.5f }, { L"clouds", 2, K::Clouds, 1.0f }, { L"clouds-heavy", 3, K::Clouds, 1.6f },
+        { L"fog", 45, K::Fog, 1.0f }, { nullptr, 48, K::Fog, 1.3f },
+        { nullptr, 51, K::Rain, 0.35f }, { nullptr, 53, K::Rain, 0.5f }, { nullptr, 55, K::Rain, 0.65f },
+        { nullptr, 56, K::Rain, 0.4f, false, true }, { nullptr, 57, K::Rain, 0.65f, false, true },
+        { L"rain-light", 61, K::Rain, 0.6f }, { L"rain", 63, K::Rain, 1.0f }, { L"rain-heavy", 65, K::Rain, 1.5f },
+        { nullptr, 66, K::Rain, 0.6f, false, true }, { L"sleet", 67, K::Rain, 1.2f, false, true },
+        { nullptr, 80, K::Rain, 0.7f }, { nullptr, 81, K::Rain, 1.1f }, { nullptr, 82, K::Rain, 1.6f },
+        { L"thunder", 95, K::Rain, 1.5f, true }, { nullptr, 96, K::Rain, 1.6f, true }, { nullptr, 99, K::Rain, 1.6f, true },
+        { L"snow-light", 71, K::Snow, 0.5f }, { L"snow", 73, K::Snow, 1.0f }, { L"snow-heavy", 75, K::Snow, 1.6f },
+        { nullptr, 77, K::Snow, 0.4f }, { nullptr, 85, K::Snow, 0.7f }, { nullptr, 86, K::Snow, 1.4f },
+    };
+    const Choice* pick = nullptr;
+    for (auto& ch : kChoices)
+        if (ch.force && _wcsicmp(s.weatherEffectsForce.c_str(), ch.force) == 0) pick = &ch;
+    if (!pick && wr)
+        for (auto& ch : kChoices) if (ch.code == wr->code) pick = &ch;
+    if (!pick) { p.kind = K::None; return; }
+    p.kind = pick->kind;
+    p.density = pick->density;
+    p.lightning = pick->lightning && s.weatherEffectsLightning;
+    p.icy = pick->icy;
+}
+
+// Effects are DComp animations: while one runs DWM recomposes every vblank, so they stop
+// whenever nobody benefits. The power and coverage state below is only kept up to date while
+// some clock wants effects (UpdateFxWatch); otherwise it stays at "may run" and costs nothing.
+bool g_saverLegacy, g_saverNew;   // GUID_POWER_SAVING_STATUS (battery saver), GUID_ENERGY_SAVER_STATUS (24H2+)
+bool g_onBattery, g_hasBattery;   // running on DC power; the PC has a system battery at all
+bool g_allCovered;                // a D3D exclusive full-screen app or presentation mode
+std::vector<std::wstring> g_coveredMons;   // devices with a maximised or full-screen window over the desktop
+// GUID_POWER_SAVING_STATUS, GUID_ENERGY_SAVER_STATUS, GUID_ACDC_POWER_SOURCE (defined here: the SDK
+// only declares them, like GUID_CONSOLE_DISPLAY_STATE above)
+const GUID kPowerSavingStatus = { 0xe00958c0, 0xc213, 0x4ace, { 0xac, 0x77, 0xfe, 0xcc, 0xed, 0x2e, 0xee, 0xa5 } };
+const GUID kEnergySaverStatus = { 0x550e8400, 0xe29b, 0x41d4, { 0xa7, 0x16, 0x44, 0x66, 0x55, 0x44, 0x00, 0x00 } };
+const GUID kAcDcPowerSource   = { 0x5d3e9a59, 0xe9d5, 0x4b00, { 0xa6, 0xbd, 0xff, 0x34, 0xff, 0x51, 0x65, 0x48 } };
+
+// nullptr when c's effect may run, else a short reason for the log. The one place that decides.
+const wchar_t* FxBlockedReason(const Clock& c) {
+    if (Paused()) return L"display off/locked";
+    if (g_s.debugMode && g_s.debugIgnorePauses) return nullptr;   // debug menu: watch them behind a maximised window
+    if (GetSystemMetrics(SM_REMOTESESSION)) return L"remote session";   // every frame would cross the network
+    BOOL anim = TRUE;
+    if (SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &anim, 0) && !anim) return L"animations off";
+    if (g_saverLegacy || g_saverNew) return L"energy saver";
+    if (g_onBattery && g_hasBattery && !g_s.weatherEffectsOnBattery) return L"on battery";
+    if (g_allCovered || std::find(g_coveredMons.begin(), g_coveredMons.end(), c.mon.device) != g_coveredMons.end())
+        return L"covered";
+    return nullptr;
 }
 
 weatherfx::Params FxParamsFor(const Clock& c) {
     weatherfx::Params p;
     const Settings& s = c.s;
-    if (!s.weatherEffects || Paused()) return p;
+    if (!s.weatherEffects || FxBlockedReason(c)) return p;
     WeatherReading wr;
     bool have = !g_s.weatherCity.empty() && WeatherLatest(g_s.weatherCity, wr);
     if (have) {   // a reading older than 2 hours no longer says what the sky is doing
@@ -721,7 +777,15 @@ weatherfx::Params FxParamsFor(const Clock& c) {
                         f = ((ULONGLONG)wr.fetchedUtc.dwHighDateTime << 32) | wr.fetchedUtc.dwLowDateTime;
         have = n - f < 2ull * 3600 * 10000000;
     }
-    p.kind = FxKindFor(s, have ? &wr : nullptr, p.density);
+    // Debug menu (DebugMode=1 only): a simulated WMO code replaces the reading's and counts as a
+    // fresh reading, so it goes through the real mapping below (WeatherEffectsForce still wins).
+    const bool dbg = g_s.debugMode;
+    if (dbg && g_s.debugWeatherCode >= 0) {
+        if (!have) { wr = WeatherReading(); wr.valid = true; }   // no city or a stale one: no real wind or night
+        wr.code = g_s.debugWeatherCode;
+        have = true;
+    }
+    FxKindFor(s, have ? &wr : nullptr, p);
     if (p.kind == weatherfx::Kind::None) return p;
     p.width = c.mon.rc.right - c.mon.rc.left;
     p.height = c.mon.rc.bottom - c.mon.rc.top;
@@ -740,21 +804,113 @@ weatherfx::Params FxParamsFor(const Clock& c) {
         p.windVx = (float)std::clamp(-std::sin(wr.windDir * 3.14159265 / 180) * kmh * 6.0, -400.0, 400.0);
         p.windVx = std::round(p.windVx / 20) * 20;   // in steps, so a small change doesn't rebuild the scene
     }
+    if (dbg) {
+        if (g_s.debugNight) p.isDay = false;
+        if (g_s.debugWindOn) {   // km/h toward the right: the same conversion and steps as above
+            p.windVx = (float)std::clamp(g_s.debugWind * 6.0, -400.0, 400.0);
+            p.windVx = std::round(p.windVx / 20) * 20;
+        }
+        if (g_s.debugDensityOn) p.density *= (float)(g_s.debugDensity / 100.0);
+    }
     return p;
 }
 
+}  // namespace
+
+// The debug menu's "Copy report": what the effects are doing on this PC, as plain text for a
+// GitHub issue. No city, wallpaper, track or path in it (settingsui.h declares it).
+std::wstring EffectsReport() {
+    std::wstring out;
+    wchar_t line[512];
+    swprintf_s(line, L"Overlook %hs, weather effects report\r\n", OVERLOOK_VERSION_STR);
+    out += line;
+    RTL_OSVERSIONINFOW v{ sizeof(v) };
+    using RtlGetVersionFn = LONG(WINAPI*)(RTL_OSVERSIONINFOW*);
+    if (auto get = (RtlGetVersionFn)(void*)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlGetVersion")) get(&v);
+    DWORD ubr = 0, cb = sizeof(ubr);
+    RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"UBR", RRF_RT_REG_DWORD,
+                 nullptr, &ubr, &cb);
+    swprintf_s(line, L"Windows %lu.%lu.%lu.%lu\r\n", v.dwMajorVersion, v.dwMinorVersion, v.dwBuildNumber, ubr);
+    out += line;
+    out += L"\r\nMonitors\r\n";
+    for (const MonitorInfo& m : EnumMonitors()) {
+        DEVMODEW dm{}; dm.dmSize = sizeof(dm);
+        const DWORD hz = EnumDisplaySettingsW(m.device.c_str(), ENUM_CURRENT_SETTINGS, &dm) ? dm.dmDisplayFrequency : 0;
+        swprintf_s(line, L"  %s: %ldx%ld, %u %%, %lu Hz%s\r\n", m.device.c_str(), m.rc.right - m.rc.left,
+                   m.rc.bottom - m.rc.top, m.dpi * 100 / 96, hz, m.primary ? L", primary" : L"");
+        out += line;
+    }
+    out += L"\r\nClocks\r\n";
+    if (g_clocks.empty()) out += L"  none shown\r\n";
+    for (auto& c : g_clocks) {
+        const std::wstring showing = c->fxKey.empty() ? L"none" : c->fxKey;
+        swprintf_s(line, L"  %s: effects %s, showing %s%s%s\r\n", c->mon.device.c_str(),
+                   c->s.weatherEffects ? L"on" : L"off", showing.c_str(), c->fxBlocked.empty() ? L"" : L", paused: ",
+                   c->fxBlocked.c_str());
+        out += line;
+    }
+    // The real reading: only its code and day/night (the place and temperatures stay out).
+    WeatherReading wr;
+    bool fresh = !g_s.weatherCity.empty() && WeatherLatest(g_s.weatherCity, wr);
+    if (fresh) {
+        FILETIME now; GetSystemTimeAsFileTime(&now);
+        const ULONGLONG n = ((ULONGLONG)now.dwHighDateTime << 32) | now.dwLowDateTime,
+                        f = ((ULONGLONG)wr.fetchedUtc.dwHighDateTime << 32) | wr.fetchedUtc.dwLowDateTime;
+        fresh = n - f < 2ull * 3600 * 10000000;
+    }
+    if (g_s.weatherCity.empty()) swprintf_s(line, L"\r\nWeather: no city set\r\n");
+    else if (fresh) swprintf_s(line, L"\r\nWeather: code %d, %s%s\r\n", wr.code, wr.isDay ? L"day" : L"night",
+                               wr.hasWind ? L", wind reported" : L"");
+    else swprintf_s(line, L"\r\nWeather: no reading from the last 2 hours\r\n");
+    out += line;
+    swprintf_s(line, L"Show (WeatherEffectsForce): %s\r\n", g_s.weatherEffectsForce.empty() ? L"the real weather"
+                                                                                        : g_s.weatherEffectsForce.c_str());
+    out += line;
+    out += L"\r\nDebug settings\r\n";
+    if (!g_s.debugMode) out += L"  debug mode off\r\n";
+    else {
+        wchar_t code[16] = L"real weather";
+        if (g_s.debugWeatherCode >= 0) swprintf_s(code, L"%d", g_s.debugWeatherCode);
+        wchar_t wind[32] = L"real", amount[32] = L"normal";
+        if (g_s.debugWindOn) swprintf_s(wind, L"%+.0f km/h", g_s.debugWind);
+        if (g_s.debugDensityOn) swprintf_s(amount, L"%.0f %%", g_s.debugDensity);
+        swprintf_s(line, L"  effects on every monitor: %s\r\n  simulated weather: %s\r\n  wind: %s\r\n  amount: %s\r\n"
+                         L"  night: %s\r\n  ignore pauses: %s\r\n",
+                   g_s.debugEffectsEverywhere ? L"on" : L"off", code, wind, amount, g_s.debugNight ? L"on" : L"off",
+                   g_s.debugIgnorePauses ? L"on" : L"off");
+        out += line;
+    }
+    swprintf_s(line, L"Effects on battery: %s\r\n", g_s.weatherEffectsOnBattery ? L"on" : L"off");
+    out += line;
+    return out;
+}
+
+namespace {
+
 // Builds, swaps or removes each clock's effect when what it should show has changed.
 void UpdateEffects() {
+    bool changed = false;
     for (auto& c : g_clocks) {
         if (!c->hwnd) continue;
+        const wchar_t* why = c->s.weatherEffects ? FxBlockedReason(*c) : nullptr;
+        if (c->fxBlocked != (why ? why : L"")) {
+            if (why) Log(L"effects %s: paused (%s)", c->mon.device.c_str(), why);
+            else Log(L"effects %s: resumed (was %s)", c->mon.device.c_str(), c->fxBlocked.c_str());
+            c->fxBlocked = why ? why : L"";
+        }
         const weatherfx::Params p = FxParamsFor(*c);
-        const std::wstring key = p.kind == weatherfx::Kind::None ? L"none" : weatherfx::Describe(p);
+        // (Describe leaves out day/night: added here so a change at dusk, or Pretend it's night, rebuilds)
+        const std::wstring key = p.kind == weatherfx::Kind::None ? L"none" : weatherfx::Describe(p) + (p.isDay ? L"" : L" night");
         if (key == c->fxKey) continue;
-        Log(L"effects %s: %s", c->mon.device.c_str(), key.c_str());
+        if (!why) Log(L"effects %s: %s", c->mon.device.c_str(), key.c_str());
         if (p.kind == weatherfx::Kind::None) weatherfx::Clear(g_r, c->hwnd);
         else if (!weatherfx::Show(g_r, c->hwnd, p)) Log(L"effects %s: failed", c->mon.device.c_str());
         c->fxKey = key;
+        changed = true;
     }
+    // Drawing the tiles takes pages the effect no longer needs (DWM holds the surfaces): hand
+    // them back, as RenderAll does after a frame, also when a pause ends outside RenderAll.
+    if (changed && !AnyAnimating()) TrimMemory();
 }
 
 void RenderAll(bool animate = false) {
@@ -763,6 +919,172 @@ void RenderAll(bool animate = false) {
     for (size_t i = 0; i < g_clocks.size(); ++i) Render(i, animate);
     UpdateEffects();
     if (!AnyAnimating()) TrimMemory();   // idle until the next minute: hand the pages back
+}
+
+// ------------------------------------------------------------------ when effects pause
+
+// Coverage: a maximised or full-screen window of another app over a monitor hides its desktop.
+// Watched with out-of-context window events (no DLL injection) only while some clock wants
+// effects: foreground changes and minimise/restore system-wide, but moves and resizes only on the
+// foreground window's thread, since location changes everywhere (the mouse cursor, carets, every
+// other app's windows) would wake us all the time. A burst (a drag) is debounced.
+bool g_fxWatching;
+HWINEVENTHOOK g_fxFgHook, g_fxMinHook, g_fxLocHook;
+DWORD g_fxLocTid;
+HPOWERNOTIFY g_fxPower[3];
+const UINT kCoverDebounceMs = 250;
+
+// w is a visible, maximised or full-screen window of another app: device = the monitor it hides.
+bool CoversMonitor(HWND w, std::wstring& device) {
+    if (!IsWindowVisible(w) || IsIconic(w)) return false;
+    DWORD pid = 0;
+    GetWindowThreadProcessId(w, &pid);
+    if (pid == GetCurrentProcessId()) return false;
+    // Click-through overlays (game bars, GPU overlays) and tool windows don't hide anything.
+    if (GetWindowLongPtrW(w, GWL_EXSTYLE) & (WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW)) return false;
+    wchar_t cls[64] = L"";
+    GetClassNameW(w, cls, 64);
+    if (wcscmp(cls, L"Shell_TrayWnd") == 0 || wcscmp(cls, L"Shell_SecondaryTrayWnd") == 0) return false;
+    DWORD cloaked = 0;   // UWP frames of suspended apps, windows on other virtual desktops
+    if (SUCCEEDED(DwmGetWindowAttribute(w, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked) return false;
+    const HMONITOR m = MonitorFromWindow(w, MONITOR_DEFAULTTONULL);
+    MONITORINFOEXW mi{};
+    mi.cbSize = sizeof(mi);
+    RECT r;
+    if (!m || !GetMonitorInfoW(m, &mi) || !GetWindowRect(w, &r)) return false;
+    auto contains = [&](const RECT& in) {
+        return r.left <= in.left && r.top <= in.top && r.right >= in.right && r.bottom >= in.bottom;
+    };
+    if (!contains(mi.rcWork) && !contains(mi.rcMonitor)) return false;
+    device = mi.szDevice;
+    return true;
+}
+
+BOOL CALLBACK CoverEnum(HWND w, LPARAM lp) {
+    // Top to bottom. The desktop (Progman, or the WorkerW holding the icons, which Win+D raises
+    // above everything) ends the search: what is below it doesn't hide it.
+    wchar_t cls[64] = L"";
+    GetClassNameW(w, cls, 64);
+    if (IsWindowVisible(w) && (wcscmp(cls, L"Progman") == 0 ||
+        (wcscmp(cls, L"WorkerW") == 0 && FindWindowExW(w, nullptr, L"SHELLDLL_DefView", nullptr))))
+        return FALSE;
+    auto& out = *reinterpret_cast<std::vector<std::wstring>*>(lp);
+    std::wstring dev;
+    if (CoversMonitor(w, dev) && std::find(out.begin(), out.end(), dev) == out.end()) {
+        if (g_logEnabled) {   // which window: a wrong "covered" is otherwise impossible to diagnose
+            DWORD pid = 0;
+            GetWindowThreadProcessId(w, &pid);
+            wchar_t exe[MAX_PATH] = L"?";
+            DWORD n = MAX_PATH;
+            if (HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)) {
+                if (!QueryFullProcessImageNameW(h, 0, exe, &n)) wcscpy_s(exe, L"?");
+                CloseHandle(h);
+            }
+            const wchar_t* base = wcsrchr(exe, L'\\');
+            RECT r{}; GetWindowRect(w, &r);
+            Log(L"cover: %s by %s (%s) %ld,%ld %ldx%ld", dev.c_str(), cls, base ? base + 1 : exe,
+                r.left, r.top, r.right - r.left, r.bottom - r.top);
+        }
+        out.push_back(std::move(dev));
+    }
+    return TRUE;
+}
+
+// Re-reads which monitors are covered; true if that changed.
+bool UpdateCoverage() {
+    QUERY_USER_NOTIFICATION_STATE q{};
+    const bool all = SUCCEEDED(SHQueryUserNotificationState(&q)) &&
+                     (q == QUNS_RUNNING_D3D_FULL_SCREEN || q == QUNS_PRESENTATION_MODE);
+    std::vector<std::wstring> mons;
+    if (!all) EnumWindows(CoverEnum, reinterpret_cast<LPARAM>(&mons));
+    std::sort(mons.begin(), mons.end());
+    if (all == g_allCovered && mons == g_coveredMons) return false;
+    g_allCovered = all;
+    g_coveredMons = std::move(mons);
+    return true;
+}
+
+void CALLBACK FxWindowEvent(HWINEVENTHOOK, DWORD ev, HWND hwnd, LONG idObject, LONG idChild, DWORD, DWORD);
+
+// Moves the location hook to the foreground window's thread (a maximise, F11, a drag).
+void WatchForeground(HWND fg) {
+    DWORD pid = 0;
+    const DWORD tid = fg ? GetWindowThreadProcessId(fg, &pid) : 0;
+    if (g_fxLocHook && tid == g_fxLocTid) return;
+    if (g_fxLocHook) UnhookWinEvent(g_fxLocHook);
+    g_fxLocHook = nullptr;
+    g_fxLocTid = 0;
+    if (!tid || pid == GetCurrentProcessId()) return;
+    g_fxLocHook = SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE, nullptr, FxWindowEvent,
+                                  pid, tid, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+    g_fxLocTid = tid;
+}
+
+void CALLBACK FxWindowEvent(HWINEVENTHOOK, DWORD ev, HWND hwnd, LONG idObject, LONG idChild, DWORD, DWORD) {
+    if (idObject != OBJID_WINDOW || idChild != CHILDID_SELF || !hwnd || !g_ctl) return;
+    if (ev == EVENT_OBJECT_LOCATIONCHANGE && GetAncestor(hwnd, GA_ROOT) != hwnd) return;   // top-level windows only
+    if (ev == EVENT_SYSTEM_FOREGROUND) WatchForeground(hwnd);
+    SetTimer(g_ctl, TIMER_COVER, kCoverDebounceMs, nullptr);   // each event of a burst pushes it back
+}
+
+void ReadPowerStatus() {
+    SYSTEM_POWER_STATUS ps{};
+    if (!GetSystemPowerStatus(&ps)) return;
+    g_hasBattery = ps.BatteryFlag != 128 && ps.BatteryFlag != 255;   // 128 no system battery, 255 unknown
+    g_onBattery = ps.ACLineStatus == 0;
+}
+
+// Starts or stops watching windows and power as some shown clock wants effects, or none does.
+void StopFxWatch() {
+    if (!g_fxWatching) return;
+    g_fxWatching = false;
+    for (HWINEVENTHOOK* h : { &g_fxFgHook, &g_fxMinHook, &g_fxLocHook })
+        if (*h) { UnhookWinEvent(*h); *h = nullptr; }
+    g_fxLocTid = 0;
+    for (HPOWERNOTIFY& n : g_fxPower)
+        if (n) { UnregisterPowerSettingNotification(n); n = nullptr; }
+    if (g_ctl) KillTimer(g_ctl, TIMER_COVER);
+    g_saverLegacy = g_saverNew = g_onBattery = g_allCovered = false;   // unknown again: nothing blocks
+    g_coveredMons.clear();
+    Log(L"effects: stopped watching");
+}
+
+void UpdateFxWatch() {
+    const bool want = AnyClockWants(&Settings::weatherEffects);
+    if (!want) { StopFxWatch(); return; }
+    if (g_fxWatching) {
+        UpdateCoverage();   // monitors may have come, gone or moved (RenderAll follows in Refresh)
+        return;
+    }
+    g_fxWatching = true;
+    const DWORD flags = WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS;
+    g_fxFgHook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr, FxWindowEvent,
+                                 0, 0, flags);
+    g_fxMinHook = SetWinEventHook(EVENT_SYSTEM_MINIMIZESTART, EVENT_SYSTEM_MINIMIZEEND, nullptr, FxWindowEvent,
+                                  0, 0, flags);
+    WatchForeground(GetForegroundWindow());
+    // Read the state now, so effects don't start only to stop when the first notifications
+    // (sent on registering) arrive. Before 24H2 the energy-saver registration has nothing to report.
+    SYSTEM_POWER_STATUS ps{};
+    g_saverLegacy = GetSystemPowerStatus(&ps) && ps.SystemStatusFlag == 1;   // battery saver on
+    ReadPowerStatus();
+    const GUID* guids[3] = { &kPowerSavingStatus, &kEnergySaverStatus, &kAcDcPowerSource };
+    for (int i = 0; i < 3; ++i)
+        g_fxPower[i] = RegisterPowerSettingNotification(g_ctl, guids[i], DEVICE_NOTIFY_WINDOW_HANDLE);
+    UpdateCoverage();
+    Log(L"effects: watching windows and power (hooks %s, battery %s)", g_fxFgHook && g_fxMinHook ? L"ok" : L"failed",
+        g_hasBattery ? L"yes" : L"none");
+}
+
+// A power setting the effects depend on (WM_POWERBROADCAST); false if it isn't one.
+bool FxPowerChanged(const POWERBROADCAST_SETTING& p) {
+    if (p.DataLength < sizeof(DWORD)) return false;
+    const DWORD v = *reinterpret_cast<const DWORD*>(p.Data);
+    if (p.PowerSetting == kPowerSavingStatus) g_saverLegacy = v != 0;
+    else if (p.PowerSetting == kEnergySaverStatus) g_saverNew = v != 0;   // ENERGY_SAVER_STANDARD or _HIGH_SAVINGS
+    else if (p.PowerSetting == kAcDcPowerSource) { ReadPowerStatus(); g_onBattery = v != 0; }   // 1 battery, 2 UPS
+    else return false;
+    return true;
 }
 
 // ------------------------------------------------------------------ keeping our slot on the desktop
@@ -998,7 +1320,9 @@ void ApplySettings() {
     g_s = LoadSettings();
     ++g_styleGen;   // fonts, sizes, shadow... may have changed: redraw even if the text didn't
     g_logEnabled = g_s.log;
+    g_logPrivate = g_s.logPrivate;
     if (g_s.log && !old.log) LogHeader();   // logging just switched on: say what this is running on
+    if (g_s.debugMode != old.debugMode) Log(L"debug mode %s", g_s.debugMode ? L"on" : L"off");
     g_iniTime = IniWriteTime();
     if (g_s.startWithWindows != IsAutostartEnabled()) SetAutostart(g_s.startWithWindows);
     UpdateTray();
@@ -1019,6 +1343,7 @@ void ApplySettings() {
 // animate: fade if what the clock says or its colour changed (e.g. an edited Color/Tint).
 void Refresh(bool animate) {
     UpdateMediaWatch();   // monitors may have come or gone, with their [Monitor ...] NowPlaying
+    UpdateFxWatch();      // ... and their WeatherEffects
     if (!EnsureAttached()) RenderAll(animate);
     ScheduleMinute();
 }
@@ -1083,6 +1408,10 @@ LRESULT CALLBACK CtlProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             KillTimer(hwnd, TIMER_HEALTH);
             if (!Attached()) { Log(L"health check: re-attaching"); EnsureAttached(); }
             break;
+        case TIMER_COVER:   // windows settled after a foreground change, minimise/restore or move
+            KillTimer(hwnd, TIMER_COVER);
+            if (UpdateCoverage()) UpdateEffects();
+            break;
         }
         return 0;
 
@@ -1110,7 +1439,7 @@ LRESULT CALLBACK CtlProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         if (wp) {
             WeatherReading w;
             if (WeatherLatest(g_s.weatherCity, w))
-                Log(L"weather: %s  %.1f (H %.1f L %.1f) code %d %s, rain %d%%", w.place.c_str(), w.temp, w.high,
+                Log(L"weather: %s  %.1f (H %.1f L %.1f) code %d %s, rain %d%%", Private(w.place).c_str(), w.temp, w.high,
                     w.low, w.code, w.isDay ? L"day" : L"night", w.rainChance);
             g_weatherFailures = 0;
             SetTimer(hwnd, TIMER_WEATHER, kWeatherEveryMs, nullptr);
@@ -1120,7 +1449,7 @@ LRESULT CALLBACK CtlProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             static const UINT kRetryMin[] = { 1, 2, 5, 10, 15 };
             const UINT delay = kRetryMin[std::min(g_weatherFailures, 4)];
             ++g_weatherFailures;
-            Log(L"weather: failed (%s), retrying in %u min", WeatherLastError().c_str(), delay);
+            Log(L"weather: failed (%s), retrying in %u min", PrivateIn(WeatherLastError(), g_s.weatherCity).c_str(), delay);
             SetTimer(hwnd, TIMER_WEATHER, delay * 60 * 1000, nullptr);
         }
         RenderAll(true);   // fades in the new reading (or hides a stale one)
@@ -1130,7 +1459,7 @@ LRESULT CALLBACK CtlProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_SETTINGCHANGE:
         if (wp == SPI_SETDESKWALLPAPER) { SetTimer(hwnd, TIMER_WALLPAPER, 1500, nullptr); return 0; }
         if (lp && lstrcmpiW(reinterpret_cast<LPCWSTR>(lp), L"ImmersiveColorSet") == 0) UpdateTray();
-        SetTimer(hwnd, TIMER_REFRESH, 500, nullptr);
+        SetTimer(hwnd, TIMER_REFRESH, 500, nullptr);   // (also re-reads "Animation effects" for the weather effects)
         return 0;
     case WM_DISPLAYCHANGE:
     case WM_DPICHANGED:
@@ -1140,12 +1469,14 @@ LRESULT CALLBACK CtlProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_WTSSESSION_CHANGE:
         if (wp == WTS_SESSION_LOCK) SetPaused(g_displayOff, true);
         else if (wp == WTS_SESSION_UNLOCK) SetPaused(g_displayOff, false);
+        else if (wp >= WTS_CONSOLE_CONNECT && wp <= WTS_REMOTE_DISCONNECT) UpdateEffects();   // remote or not now
         return 0;
     case WM_POWERBROADCAST:
         if (wp == PBT_POWERSETTINGCHANGE) {
             const auto* p = reinterpret_cast<const POWERBROADCAST_SETTING*>(lp);
             if (p && p->PowerSetting == kConsoleDisplayState && p->DataLength >= sizeof(DWORD))
                 SetPaused(*reinterpret_cast<const DWORD*>(p->Data) == 0, g_locked);
+            else if (p && FxPowerChanged(*p)) UpdateEffects();
             return TRUE;
         }
         if (wp == PBT_APMRESUMEAUTOMATIC || wp == PBT_APMRESUMESUSPEND) {
@@ -1207,6 +1538,7 @@ LRESULT CALLBACK CtlProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_DESTROY:
         if (g_deskHook) { UnhookWinEvent(g_deskHook); g_deskHook = nullptr; }
         if (g_powerNotify) { UnregisterPowerSettingNotification(g_powerNotify); g_powerNotify = nullptr; }
+        StopFxWatch();
         WTSUnRegisterSessionNotification(hwnd);
         CloseSettingsWindow();
         UpdateTray(true);
@@ -1551,8 +1883,10 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR cmdLine, int) {
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     g_s = LoadSettings();
     g_logEnabled = g_s.log;
+    g_logPrivate = g_s.logPrivate;
     g_iniTime = IniWriteTime();
     LogHeader();
+    if (g_s.debugMode) Log(L"debug mode on");
     if (!g_r.Init()) {
         Log(L"renderer init failed");
         MessageBoxW(nullptr, L"Overlook could not initialise Direct2D/DirectWrite or load its fonts.", L"Overlook", MB_ICONERROR);

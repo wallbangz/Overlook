@@ -504,7 +504,7 @@ bool Geocode(const std::wstring& cityIn, GeoResult& out, std::wstring& err, bool
         if (WToNum(IniGet(path, L"Geocode", L"Lat"), g.lat) && WToNum(IniGet(path, L"Geocode", L"Lon"), g.lon)) {
             g.place = IniGet(path, L"Geocode", L"Place");
             out = std::move(g);
-            Log(L"weather: geocode cache hit for '%s' -> %s", city.c_str(), out.place.c_str());
+            Log(L"weather: geocode cache hit for '%s' -> %s", Private(city).c_str(), Private(out.place).c_str());
             return true;
         }
     }
@@ -553,7 +553,9 @@ bool Geocode(const std::wstring& cityIn, GeoResult& out, std::wstring& err, bool
     IniSet(path, L"Geocode", L"Lat", NumToW(g.lat, 4));
     IniSet(path, L"Geocode", L"Lon", NumToW(g.lon, 4));
     IniSet(path, L"Geocode", L"Place", g.place);
-    Log(L"weather: geocoded '%s' -> %s (%.4f, %.4f)", city.c_str(), g.place.c_str(), g.lat, g.lon);
+    wchar_t at[64] = L"";   // the coordinates pin the place down even better than its name
+    if (g_logPrivate) swprintf_s(at, L" (%.4f, %.4f)", g.lat, g.lon);
+    Log(L"weather: geocoded '%s' -> %s%s", Private(city).c_str(), Private(g.place).c_str(), at);
     out = std::move(g);
     return true;
 }
@@ -728,7 +730,7 @@ void RunJob(const Job& job) {
             }
             ok = true;
             Log(L"weather: fetched %s (UTC%+d min) %.1f (feels %.1f) (H %.1f L %.1f) code %d rain %d%% wind %.0f from %d in %llu ms",
-                rd.place.c_str(), rd.utcOffset / 60, rd.temp, rd.apparent, rd.high, rd.low, rd.code, rd.rainChance, rd.windSpeed,
+                Private(rd.place).c_str(), rd.utcOffset / 60, rd.temp, rd.apparent, rd.high, rd.low, rd.code, rd.rainChance, rd.windSpeed,
                 rd.windDir, GetTickCount64() - t0);
         }
     } catch (...) {
@@ -737,7 +739,7 @@ void RunJob(const Job& job) {
     if (!ok) {
         Lock l;
         g_lastError = err.empty() ? L"unknown error" : err;
-        Log(L"weather: failed: %s", g_lastError.c_str());
+        Log(L"weather: failed: %s", PrivateIn(g_lastError, Trim(job.req.city)).c_str());
     }
     HWND w = job.notify;
     UINT m = job.msg;

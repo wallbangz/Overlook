@@ -12,6 +12,7 @@
 #include <dwmapi.h>
 #include <commdlg.h>
 #include <shellapi.h>
+#include <shlobj.h>
 #include <shellscalingapi.h>
 #include <initguid.h>   // CLSID_AccPropServices and the PROPID_ACC_ GUIDs, defined here
 #include <oleacc.h>
@@ -26,11 +27,14 @@ namespace {
 
 const wchar_t kClass[] = L"OverlookSettings";
 enum : UINT_PTR { TIMER_SLIDER = 1 };
-enum : UINT { WM_APP_MOVEFOCUS = WM_APP + 40 };
+enum : UINT { WM_APP_MOVEFOCUS = WM_APP + 40, WM_APP_DEBUG = WM_APP + 42 };   // (+41: UI Automation Invoke)
 
 // Left pane and content geometry, DIPs.
 const float kPaneW = 280, kNavTop = 100, kNavH = 36, kNavGap = 4, kTitleH = 76, kCardGap = 4, kPad = 16;
 const float kMaxCardW = 1000, kCtlH = 32;
+const float kFooterH = 32;      // the DEBUG MODE strip under the content, in debug mode
+const int kDebugPage = 6;       // the last page, listed only in debug mode
+const wchar_t kCopyText[] = L"Copy";
 
 std::unique_ptr<Window> g_win;
 
@@ -186,17 +190,22 @@ void Window::BuildControls() {
         ctls[s].action = kScope;
         static const struct { const wchar_t* name; wchar_t icon; } kPages[] = {
             { L"Clock", 0xE121 }, { L"Look", 0xE790 }, { L"Weather", 0xE753 }, { L"Now playing", 0xEC4F }, { L"Monitors", 0xE7F4 }, { L"About", 0xE946 },
+            { L"Debug", 0xEBE8 },   // kDebugPage (Bug); hidden unless DebugMode=1
         };
         for (int p = 0; p < (int)ARRAYSIZE(kPages); ++p) {
             Page pg; pg.name = kPages[p].name; pg.icon = kPages[p].icon;
             pages_.push_back(pg);
             const int n = add(Kind::NavItem, -1, L"", kPages[p].name, L"", L"");
             ctls[n].owner = p;
+            if (p == kDebugPage) { debugNav_ = n; ctls[n].visible = false; }
         }
         const int u = add(Kind::Button, -1, L"", L"Undo changes", L"Puts Overlook.ini back as it was when this window opened", L"");
         ctls[u].action = kUndo;
         const int o = add(Kind::Link, -1, L"", L"More settings in Overlook.ini", L"Opens the file in your text editor", L"");
         ctls[o].action = kOpenIni;
+        // The DEBUG MODE footer: drawn under the content on every page, exposed as text.
+        debugLabel_ = add(Kind::Static, -1, L"", L"Debug mode is on", L"Ctrl+Shift+D turns it off", L"");
+        ctls[debugLabel_].visible = false;
     }
 
     // Clock: what it says, then startup
@@ -296,6 +305,31 @@ void Window::BuildControls() {
             row({ i });
         }
     }
+    header(2, L"Weather effects");
+    note(2, L"", kEffectsCity);
+    row({ add(Kind::Toggle, 2, L"WeatherEffects", L"Weather effects",
+              L"Clouds, rain and snow over the wallpaper, below the clock and icons", L"0") });
+    {
+        const int f = add(Kind::Combo, 2, L"WeatherEffectsForce", L"Show", L"Preview an effect instead of the real weather", L"");
+        ctls[f].options = { { L"", L"The real weather" }, { L"clouds-light", L"Light clouds" }, { L"clouds", L"Clouds" },
+                            { L"clouds-heavy", L"Heavy clouds" }, { L"fog", L"Fog" }, { L"rain-light", L"Light rain" },
+                            { L"rain", L"Rain" }, { L"rain-heavy", L"Heavy rain" }, { L"sleet", L"Freezing rain" },
+                            { L"thunder", L"Thunderstorm" }, { L"snow-light", L"Light snow" }, { L"snow", L"Snow" },
+                            { L"snow-heavy", L"Heavy snow" } };
+        ctls[f].dependsOn = L"WeatherEffects";
+        row({ f });
+        const int o = slider(2, L"WeatherEffectsOpacity", L"Effects opacity", L"", L"40", 0, 100, 1, 10, L" %");
+        ctls[o].dependsOn = L"WeatherEffects";
+        row({ o });
+        const int l = add(Kind::Toggle, 2, L"WeatherEffectsLightning", L"Lightning",
+                          L"Soft glows in the sky during thunderstorms", L"1");
+        ctls[l].dependsOn = L"WeatherEffects";
+        row({ l });
+        const int b = add(Kind::Toggle, 2, L"WeatherEffectsOnBattery", L"Run on battery",
+                          L"Effects pause on battery unless this is on", L"0");
+        ctls[b].appWide = true;
+        row({ b });
+    }
 
     // Now playing
     row({ add(Kind::Toggle, 3, L"NowPlaying", L"Show what's playing", L"From Windows' media controls", L"1") });
@@ -331,26 +365,98 @@ void Window::BuildControls() {
 
     // About
     note(5, L"", kAbout);
-    auto link = [&](const wchar_t* label, const wchar_t* desc, const wchar_t* text, Action a, const std::wstring& url) {
-        const int i = add(Kind::Link, 5, L"", text, L"", L"");
+    auto link = [&](int page, const wchar_t* label, const wchar_t* desc, const wchar_t* text, Action a,
+                    const std::wstring& url) {
+        const int i = add(Kind::Link, page, L"", text, L"", L"");
         ctls[i].action = a;
         ctls[i].url = url;
         Item it;
         const int t = add(Kind::Link, -3, L"", label, desc, L"");   // the row's label (never shown on its own)
         ctls[t].visible = false;
         it.ctls = { t, i };
-        pages_[5].items.push_back(it);
+        pages_[page].items.push_back(it);
         return i;
     };
     const std::wstring repo = L"https://github.com/wallbangz/Overlook";
-    link(L"Source code", L"Free and open source, MIT licence", L"GitHub", kUrl, repo);
-    link(L"Updates", L"Download the latest version", L"Releases", kUrl, repo + L"/releases");
-    link(L"Report a problem", L"Or suggest an idea", L"Open an issue", kUrl, repo + L"/issues/new/choose");
+    link(5, L"Source code", L"Free and open source, MIT licence", L"GitHub", kUrl, repo);
+    link(5, L"Updates", L"Download the latest version", L"Releases", kUrl, repo + L"/releases");
+    link(5, L"Report a problem", L"Or suggest an idea", L"Open an issue", kUrl, repo + L"/issues/new/choose");
     header(5, L"Credits");
-    link(L"Weather", L"Data by Open-Meteo.com, CC BY 4.0", L"open-meteo.com", kUrl, L"https://open-meteo.com");
-    link(L"Font", L"Inter Display by Rasmus Andersson, SIL Open Font License 1.1", L"rsms.me/inter", kUrl, L"https://rsms.me/inter/");
+    link(5, L"Weather", L"Data by Open-Meteo.com, CC BY 4.0", L"open-meteo.com", kUrl, L"https://open-meteo.com");
+    link(5, L"Font", L"Inter Display by Rasmus Andersson, SIL Open Font License 1.1", L"rsms.me/inter", kUrl, L"https://rsms.me/inter/");
     header(5, L"Files");
-    link(L"Settings and logs", ExeDir().c_str(), L"Open folder", kOpenFolder, L"");
+    link(5, L"Settings and logs", ExeDir().c_str(), L"Open folder", kOpenFolder, L"");
+    header(5, L"Troubleshooting");
+    {
+        const int l = add(Kind::Toggle, 5, L"Log", L"Diagnostic log", L"Write Overlook.log next to the app, for bug reports", L"0");
+        ctls[l].appWide = true;
+        row({ l });
+        const int p = add(Kind::Toggle, 5, L"LogPrivate", L"Include private details",
+                          L"Wallpaper names, track titles and the weather place; off: masked in the log", L"0");
+        ctls[p].appWide = true;
+        ctls[p].dependsOn = L"Log";
+        row({ p });
+    }
+    link(5, L"Log file", L"Shows Overlook.log in its folder", L"Open log folder", kOpenLog, L"");
+
+    // Debug (kDebugPage): hidden test settings for the weather effects. Every key is app-wide and
+    // only read while DebugMode=1, so leftovers do nothing once debug mode is off.
+    {
+        const int d = kDebugPage;
+        note(d, L"Test settings for the weather effects, on every monitor whose weather effects are on. They stay in "
+                L"Overlook.ini but do nothing once debug mode is off.", kStatic);
+        auto toggle = [&](const wchar_t* key, const wchar_t* label, const wchar_t* desc) {
+            const int i = add(Kind::Toggle, d, key, label, desc, L"0");
+            ctls[i].appWide = true;
+            row({ i });
+            return i;
+        };
+        toggle(L"DebugMode", L"Debug mode", L"Ctrl+Shift+D anywhere in this window turns it on or off");
+        header(d, L"Effects");
+        toggle(L"DebugEffectsEverywhere", L"Effects on every monitor", L"Treats Weather effects as on for every clock");
+        const int w = add(Kind::Combo, d, L"DebugWeatherCode", L"Simulate weather",
+                          L"Goes through the same mapping as the real weather; Show on the Weather page still wins", L"");
+        ctls[w].appWide = true;
+        ctls[w].boxWidth = 260;
+        ctls[w].options.push_back({ L"", L"Real weather" });
+        static const struct { const wchar_t *code, *name; } kCodes[] = {
+            { L"0", L"Clear sky" }, { L"1", L"Mainly clear" }, { L"2", L"Partly cloudy" }, { L"3", L"Overcast" },
+            { L"45", L"Fog" }, { L"48", L"Rime fog" }, { L"51", L"Light drizzle" }, { L"53", L"Drizzle" },
+            { L"55", L"Dense drizzle" }, { L"56", L"Light freezing drizzle" }, { L"57", L"Freezing drizzle" },
+            { L"61", L"Light rain" }, { L"63", L"Rain" }, { L"65", L"Heavy rain" }, { L"66", L"Light freezing rain" },
+            { L"67", L"Freezing rain" }, { L"71", L"Light snow" }, { L"73", L"Snow" }, { L"75", L"Heavy snow" },
+            { L"77", L"Snow grains" }, { L"80", L"Light showers" }, { L"81", L"Showers" }, { L"82", L"Violent showers" },
+            { L"85", L"Snow showers" }, { L"86", L"Heavy snow showers" }, { L"95", L"Thunderstorm" },
+            { L"96", L"Thunderstorm, hail" }, { L"99", L"Thunderstorm, heavy hail" },
+        };
+        for (auto& k : kCodes) ctls[w].options.push_back({ k.code, std::wstring(k.code) + L" " + k.name });
+        row({ w });
+        toggle(L"DebugWindOn", L"Override wind", L"Uses the wind below instead of the real one");
+        {
+            const int s = slider(d, L"DebugWind", L"Wind", L"Positive blows toward the right of the screen", L"0",
+                                 -60, 60, 5, 20, L" km/h");
+            ctls[s].appWide = true;
+            ctls[s].dependsOn = L"DebugWindOn";
+            row({ s });
+        }
+        toggle(L"DebugDensityOn", L"Override amount", L"Scales how much of the effect there is");
+        {
+            const int s = slider(d, L"DebugDensity", L"Amount", L"% of the usual amount for the weather", L"100",
+                                 25, 200, 5, 25, L" %");
+            ctls[s].appWide = true;
+            ctls[s].dependsOn = L"DebugDensityOn";
+            row({ s });
+        }
+        toggle(L"DebugNight", L"Pretend it's night", L"Draws the effects as they look at night");
+        toggle(L"DebugIgnorePauses", L"Ignore pauses",
+               L"Effects keep running when covered by a maximised window, on battery or with animations off; they still "
+               L"stop while the display is off or locked");
+        header(d, L"Feedback");
+        copyLink_ = link(d, L"Copy report", L"Copies what the effects are doing, for a GitHub issue", kCopyText,
+                         kCopyReport, L"");
+        link(d, L"Log file", L"Turn on Diagnostic log on the About page, then attach Overlook.log", L"Open log folder",
+             kOpenLog, L"");
+    }
 }
 
 // One on/off row per monitor of the Monitor= set, after the "Clocks" header and its note. Rows
@@ -448,6 +554,26 @@ void Window::LoadValues() {
     monitors_ = std::move(mons);
     if (!same) BuildMonitorRows();
     BuildScopes();
+
+    // Debug mode (DebugMode=1, also from an editor or Undo): the Debug page and the footer.
+    std::wstring dm;
+    debug_ = doc_.Get(L"Clock", L"DebugMode", dm) && ParseBool(Trim(dm), false);
+    if (debugNav_ >= 0) ctls[debugNav_].visible = debug_;
+    if (debugLabel_ >= 0) ctls[debugLabel_].visible = debug_;
+    if (!debug_ && page_ == kDebugPage) {   // turned off while on it: back to the first page
+        if (popup_.ctl >= 0) popup_.ctl = -1;
+        if (sliderPending_ && ctls[sliderCtl_].page == kDebugPage) { KillTimer(hwnd, TIMER_SLIDER); sliderPending_ = false; }
+        const bool moveFocus = focus_ >= 0 && (focus_ == debugNav_ || ctls[focus_].page == kDebugPage);
+        page_ = 0;
+        scroll_ = 0;
+        hot_ = pressed_ = -1;
+        if (copyLink_ >= 0) ctls[copyLink_].label = kCopyText;
+        if (moveFocus) {
+            for (size_t i = 0; i < ctls.size(); ++i)
+                if (ctls[i].kind == Kind::NavItem && ctls[i].owner == 0) focus_ = (int)i;
+            NotifyFocus();
+        }
+    }
 
     std::wstring hidden;
     doc_.Get(L"Clock", L"HiddenMonitors", hidden);
@@ -689,12 +815,13 @@ int Window::CtlIndex(int id) const {
 
 std::vector<int> Window::UiaOrder() const {
     std::vector<int> out;
+    auto paneEnd = [&](const Ctl& c) { return c.kind == Kind::Button || c.kind == Kind::Link || c.kind == Kind::Static; };
     for (size_t i = 0; i < ctls.size(); ++i)
-        if (ctls[i].page == -1 && ctls[i].kind != Kind::Button && ctls[i].kind != Kind::Link) out.push_back((int)i);
+        if (ctls[i].page == -1 && ctls[i].visible && !paneEnd(ctls[i])) out.push_back((int)i);
     for (auto& it : pages_[page_].items)
         for (int i : it.ctls) if (ctls[i].visible) out.push_back(i);
     for (size_t i = 0; i < ctls.size(); ++i)
-        if (ctls[i].page == -1 && (ctls[i].kind == Kind::Button || ctls[i].kind == Kind::Link)) out.push_back((int)i);
+        if (ctls[i].page == -1 && ctls[i].visible && paneEnd(ctls[i])) out.push_back((int)i);   // the footer last
     return out;
 }
 
@@ -702,7 +829,7 @@ std::vector<int> Window::FocusOrder() const {
     std::vector<int> out;
     for (int i : UiaOrder()) {
         const Ctl& c = ctls[i];
-        if (!c.enabled || !c.visible) continue;
+        if (!c.enabled || !c.visible || c.kind == Kind::Static) continue;
         if (c.kind == Kind::NavItem && c.owner != page_) continue;   // the page list is one tab stop
         out.push_back(i);
     }
@@ -843,6 +970,7 @@ void Window::CreateFonts() {
     make(display, 28, DWRITE_FONT_WEIGHT_SEMI_BOLD, false, title_);
     make(iconFamily_, 16, DWRITE_FONT_WEIGHT_NORMAL, false, icon_);
     make(iconFamily_, 12, DWRITE_FONT_WEIGHT_NORMAL, false, iconSmall_);
+    make(family_, 11, DWRITE_FONT_WEIGHT_BOLD, false, badge_);
 
     // The EDIT control's font, at the window's DPI.
     if (editFont_) DeleteObject(editFont_);
@@ -867,7 +995,7 @@ bool Window::CreateTarget() {
 
 float Window::Snap(float v) const { return std::round(v * scale_) / scale_; }
 
-D2D1_RECT_F Window::ContentRect() const { return { kPaneW, kTitleH, w_, h_ }; }
+D2D1_RECT_F Window::ContentRect() const { return { kPaneW, kTitleH, w_, h_ - (debug_ ? kFooterH : 0) }; }
 
 D2D1_RECT_F Window::ViewRect(int i) const {
     D2D1_RECT_F r = ctls[i].box;
@@ -903,7 +1031,12 @@ void Window::Layout() {
         if (c.page != -1) continue;
         switch (c.kind) {
         case Kind::Combo: c.box = { kPad, 42, kPaneW - kPad, 42 + kCtlH }; break;
-        case Kind::NavItem: c.box = { 8, y, kPaneW - 8, y + kNavH }; y += kNavH + kNavGap; break;
+        case Kind::NavItem:
+            if (!c.visible) { c.box = {}; break; }   // the Debug page outside debug mode
+            c.box = { 8, y, kPaneW - 8, y + kNavH }; y += kNavH + kNavGap; break;
+        case Kind::Static:   // the DEBUG MODE badge, bottom-left of the content area
+            c.box = { kPaneW + 6, h_ - kFooterH + 5, kPaneW + 6 + TextWidth(L"DEBUG MODE", badge_.Get()) + 40, h_ - 5 };
+            break;
         case Kind::Button: c.box = { kPad, h_ - 96, kPad + TextWidth(c.label, body_.Get()) + 52, h_ - 96 + kCtlH }; break;
         case Kind::Link: c.box = { kPad, h_ - 50, kPad + TextWidth(c.label, body_.Get()) + 26, h_ - 22 }; break;
         default: break;
@@ -934,6 +1067,15 @@ void Window::LayoutPage(Page& p) {
                 std::wstring city;
                 for (auto& c : ctls) if (c.key == L"WeatherCity") city = Trim(c.value);
                 text = city.empty() ? L"The weather line is off until you set a city." : L"";
+            } else if (it.noteKind == kEffectsCity) {   // effects on, following the real weather, but no city
+                std::wstring city, force;
+                bool on = false;
+                for (auto& c : ctls) {
+                    if (c.key == L"WeatherCity") city = Trim(c.value);
+                    else if (c.key == L"WeatherEffectsForce") force = Trim(c.value);
+                    else if (c.key == L"WeatherEffects") on = ParseBool(c.value, ParseBool(c.defValue, false));
+                }
+                text = on && city.empty() && force.empty() ? L"Effects follow the city's weather: set a city above, or pick an effect under Show." : L"";
             } else if (it.noteKind == kMonitorSpec) {
                 std::wstring spec;
                 doc_.Get(L"Clock", L"Monitor", spec);
@@ -1246,7 +1388,7 @@ void Window::DrawCtl(int i, bool inContent) {
         D2D1_COLOR_F col = c.enabled ? t_.link : t_.disabled;
         if (hot && !t_.contrast) col.a = 0.8f;
         if (c.kind == Kind::Link) {
-            const wchar_t ic[2] = { 0xE8A7, 0 };
+            const wchar_t ic[2] = { c.action == kCopyReport ? (wchar_t)0xE8C8 : (wchar_t)0xE8A7, 0 };   // Copy / Open in new window
             DrawText(c.label, body_.Get(), { r.left + 2, r.top, r.right - 24, r.bottom }, col);
             DrawText(ic, iconSmall_.Get(), { r.right - 20, r.top, r.right - 4, r.bottom }, col);
         } else {
@@ -1262,6 +1404,23 @@ void Window::DrawCtl(int i, bool inContent) {
         if (focused) FocusRing(r, 4);
         break;
     }
+    case Kind::Static: {   // DEBUG MODE: a strip under the content, a caution-coloured badge and how to leave
+        const D2D1_RECT_F cr = ContentRect();
+        brush_->SetColor(t_.cardStroke);
+        const float ly = Snap(cr.bottom) + 0.5f / scale_;
+        rt_->DrawLine({ kPaneW, ly }, { w_, ly }, brush_.Get(), 1 / scale_);
+        // Windows' caution colours (SystemFillColorCaution and its background); high contrast: outlined.
+        const D2D1_COLOR_F fg = t_.contrast ? t_.text : t_.dark ? Rgb(252, 225, 0) : Rgb(157, 93, 0);
+        const D2D1_COLOR_F bg = t_.contrast ? t_.bg : t_.dark ? Rgb(67, 53, 25) : Rgb(255, 244, 206);
+        const float rad = (r.bottom - r.top) / 2;
+        FillRound(r, rad, bg);
+        StrokeRound(r, rad, fg);
+        const wchar_t bug[2] = { 0xEBE8, 0 };
+        DrawText(bug, iconSmall_.Get(), { r.left + 10, r.top, r.left + 24, r.bottom }, fg);
+        DrawText(L"DEBUG MODE", badge_.Get(), { r.left + 28, r.top, r.right - 8, r.bottom }, fg);
+        DrawText(c.desc, caption_.Get(), { r.right + 12, r.top, w_ - 24, r.bottom }, t_.text2);
+        break;
+    }
     }
 }
 
@@ -1275,8 +1434,17 @@ void Window::DrawPopup() {
                   Rgb(0, 0, 0, t_.dark ? 0.09f : 0.035f));
     FillRound(r, 8, t_.popup);
     StrokeRound(r, 8, t_.contrast ? t_.text : t_.dark ? Rgb(20, 20, 20) : Rgb(220, 220, 220));
-    for (size_t o = 0; o < c.options.size(); ++o) {
-        const D2D1_RECT_F it{ r.left + 4, r.top + 4 + o * popup_.itemH, r.right - 4, r.top + 4 + (o + 1) * popup_.itemH };
+    const int n = (int)c.options.size();
+    if (popup_.shown < n) {   // a scrolling list: a thin thumb on the right
+        const float trackH = r.bottom - r.top - 8;
+        const float th = std::max(16.f, trackH * popup_.shown / n);
+        const float tt = r.top + 4 + (trackH - th) * popup_.first / std::max(1, n - popup_.shown);
+        FillRound({ r.right - 6, tt, r.right - 3, tt + th }, 1.5f, t_.text2);
+    }
+    for (int o = popup_.first; o < std::min(n, popup_.first + popup_.shown); ++o) {
+        const int k = o - popup_.first;
+        const D2D1_RECT_F it{ r.left + 4, r.top + 4 + k * popup_.itemH, r.right - (popup_.shown < n ? 8.f : 4.f),
+                              r.top + 4 + (k + 1) * popup_.itemH };
         const bool sel = (int)o == popup_.sel, hot = (int)o == popup_.hot;
         // High contrast: hot and selected items in the highlight colours (selFill is the highlight there too).
         const bool lit = (hot || sel) && t_.contrast;
@@ -1303,7 +1471,7 @@ int Window::HitTest(float x, float y) const {
     int card = -1;
     for (size_t i = 0; i < ctls.size(); ++i) {
         const Ctl& c = ctls[i];
-        if (!c.visible || c.page == -2 || (c.page >= 0 && c.page != page_)) continue;
+        if (!c.visible || c.page == -2 || (c.page >= 0 && c.page != page_) || c.kind == Kind::Static) continue;
         if (c.page >= 0 && !Inside(cr, x, y)) continue;
         D2D1_RECT_F r = ViewRect((int)i);
         if (c.kind == Kind::Slider) r = Inflate(r, 4, 6);
@@ -1359,11 +1527,68 @@ void Window::Activate(int i) {
         else if (c.action == kOpenIni) ShellExecuteW(hwnd, L"open", iniPath_.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         else if (c.action == kUrl) ShellExecuteW(hwnd, L"open", c.url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         else if (c.action == kOpenFolder) ShellExecuteW(hwnd, L"open", ExeDir().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        else if (c.action == kOpenLog) {   // Explorer with Overlook.log selected, or just the folder
+            const std::wstring log = ExeBase() + L".log";
+            bool shown = false;
+            if (GetFileAttributesW(log.c_str()) != INVALID_FILE_ATTRIBUTES)
+                if (PIDLIST_ABSOLUTE pidl = ILCreateFromPathW(log.c_str())) {
+                    shown = SUCCEEDED(SHOpenFolderAndSelectItems(pidl, 0, nullptr, 0));
+                    ILFree(pidl);
+                }
+            if (!shown) ShellExecuteW(hwnd, L"open", ExeDir().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        }
+        else if (c.action == kCopyReport) CopyReport(i);
         else if (c.action == kAppsDefault)
             for (size_t j = 0; j < ctls.size(); ++j) if (ctls[j].key == L"NowPlayingApps") Write((int)j, kDefaultApps);
         break;
-    case Kind::Slider: break;
+    case Kind::Slider: case Kind::Static: break;
     }
+}
+
+// ================================================================== debug menu
+
+// Ctrl+Shift+D: DebugMode on or off, written like any other key so the clock reloads (and logs it).
+void Window::ToggleDebug() {
+    EndEdit(true);
+    ClosePopup(false);
+    if (sliderPending_) CommitSlider();
+    const bool on = !debug_;
+    IniDoc d;
+    d.Load(iniPath_);
+    BackupIniOnce(iniPath_);
+    d.Set(L"Clock", L"DebugMode", on ? L"1" : L"0");
+    if (!d.Save(iniPath_)) { MessageBeep(MB_ICONWARNING); return; }
+    changed_ = true;
+    if (host_.ctl) PostMessageW(host_.ctl, host_.reloadMsg, 0, 0);
+    LoadValues();
+    if (debug_) SetPage(kDebugPage);
+    for (size_t j = 0; j < ctls.size(); ++j)
+        if (ctls[j].key == L"DebugMode") UiaRaiseToggle(*this, (int)j, debug_);
+}
+
+// "Copy report": the effects report as plain text on the clipboard; the link says "Copied" until
+// the page changes.
+void Window::CopyReport(int i) {
+    std::wstring text = EffectsReport();
+    bool ok = false;
+    if (OpenClipboard(hwnd)) {
+        EmptyClipboard();
+        if (HGLOBAL mem = GlobalAlloc(GMEM_MOVEABLE, (text.size() + 1) * sizeof(wchar_t))) {
+            if (void* p = GlobalLock(mem)) {
+                memcpy(p, text.c_str(), (text.size() + 1) * sizeof(wchar_t));
+                GlobalUnlock(mem);
+                ok = SetClipboardData(CF_UNICODETEXT, mem) != nullptr;
+            }
+            if (!ok) GlobalFree(mem);
+        }
+        CloseClipboard();
+    }
+    if (!ok) { MessageBeep(MB_ICONWARNING); return; }
+    const std::wstring was = ctls[i].label;
+    ctls[i].label = L"Copied";
+    Layout();
+    Invalidate();
+    UiaRaiseName(*this, i, was);
 }
 
 void Window::SetSlider(int i, double v, bool commitNow) {
@@ -1444,11 +1669,22 @@ void Window::OpenPopup(int i) {
         if (c.kind == Kind::EditCombo) need += TextWidth(o.value, caption_.Get()) + 24;
         wdt = std::max(wdt, need);
     }
-    const float hgt = c.options.size() * popup_.itemH + 8;
+    const int n = (int)c.options.size();
+    popup_.first = 0;
+    popup_.shown = n;
+    float hgt = n * popup_.itemH + 8;
     D2D1_RECT_F r{ b.right - wdt, b.bottom + 4, b.right, b.bottom + 4 + hgt };
     if (r.left < 8) { r.right += 8 - r.left; r.left = 8; }
-    if (r.bottom > h_ - 8) { r.bottom = b.top - 4; r.top = r.bottom - hgt; }
-    if (r.top < 8) { r.top = 8; r.bottom = r.top + hgt; }
+    if (hgt > h_ - 16) {   // taller than the window (Simulate weather): a scrolling list around the control
+        popup_.shown = std::max(1, (int)((h_ - 16 - 8) / popup_.itemH));
+        hgt = popup_.shown * popup_.itemH + 8;
+        r.top = std::clamp((b.top + b.bottom) / 2 - hgt / 2, 8.f, std::max(8.f, h_ - 8 - hgt));
+        r.bottom = r.top + hgt;
+        popup_.first = std::clamp(popup_.hot - popup_.shown / 2, 0, n - popup_.shown);
+    } else {
+        if (r.bottom > h_ - 8) { r.bottom = b.top - 4; r.top = r.bottom - hgt; }
+        if (r.top < 8) { r.top = 8; r.bottom = r.top + hgt; }
+    }
     popup_.rc = r;
     hot_ = -1;
     Invalidate();
@@ -1520,9 +1756,12 @@ void Window::EndEdit(bool commit) {
     NotifyFocus();
 }
 
+int Window::PageCount() const { return (int)pages_.size() - (debug_ ? 0 : 1); }
+
 void Window::SetPage(int p) {
-    p = (p + (int)pages_.size()) % (int)pages_.size();
+    p = (p + PageCount()) % PageCount();
     if (p == page_) return;
+    if (copyLink_ >= 0 && ctls[copyLink_].label != kCopyText) ctls[copyLink_].label = kCopyText;   // "Copied" until the page changes
     EndEdit(true);
     ClosePopup(false);
     if (sliderPending_) CommitSlider();
@@ -1572,6 +1811,7 @@ void Window::PickColor(int i) {
 void Window::OnKey(UINT vk) {
     kbdCues_ = true;
     const bool ctrl = GetKeyState(VK_CONTROL) < 0, shift = GetKeyState(VK_SHIFT) < 0, alt = GetKeyState(VK_MENU) < 0;
+    if (ctrl && shift && !alt && vk == 'D') { ToggleDebug(); return; }   // the hidden debug menu
     if (popup_.ctl >= 0) {
         const int n = (int)ctls[popup_.ctl].options.size();
         switch (vk) {
@@ -1579,9 +1819,11 @@ void Window::OnKey(UINT vk) {
         case VK_DOWN: if (alt) { ClosePopup(true); break; } popup_.hot = std::min(n - 1, popup_.hot + 1); Invalidate(); break;
         case VK_HOME: popup_.hot = 0; Invalidate(); break;
         case VK_END: popup_.hot = n - 1; Invalidate(); break;
-        case VK_RETURN: case VK_SPACE: case VK_TAB: case VK_F4: ClosePopup(true); break;
-        case VK_ESCAPE: ClosePopup(false); break;
+        case VK_RETURN: case VK_SPACE: case VK_TAB: case VK_F4: ClosePopup(true); return;
+        case VK_ESCAPE: ClosePopup(false); return;
         }
+        if (popup_.ctl >= 0 && popup_.shown > 0 && popup_.shown < n)   // a scrolling list keeps the hot item in view
+            popup_.first = std::clamp(std::clamp(popup_.first, popup_.hot - popup_.shown + 1, popup_.hot), 0, n - popup_.shown);
         return;
     }
     if (vk == VK_TAB) {
@@ -1604,7 +1846,7 @@ void Window::OnKey(UINT vk) {
         if (vk == VK_UP || vk == VK_LEFT) SetPage(page_ - 1);
         else if (vk == VK_DOWN || vk == VK_RIGHT) SetPage(page_ + 1);
         else if (vk == VK_HOME) SetPage(0);
-        else if (vk == VK_END) SetPage((int)pages_.size() - 1);
+        else if (vk == VK_END) SetPage(PageCount() - 1);
         break;
     case Kind::Slider:
         if (!c.enabled) break;
@@ -1637,8 +1879,8 @@ void Window::OnMouseDown(float x, float y, bool dbl) {
     kbdCues_ = false;
     if (popup_.ctl >= 0) {
         if (Inside(popup_.rc, x, y)) {
-            const int o = (int)((y - popup_.rc.top - 4) / popup_.itemH);
-            if (o >= 0 && o < (int)ctls[popup_.ctl].options.size()) { popup_.hot = o; ClosePopup(true); }
+            const int k = (int)((y - popup_.rc.top - 4) / popup_.itemH), o = popup_.first + k;
+            if (k >= 0 && k < popup_.shown && o < (int)ctls[popup_.ctl].options.size()) { popup_.hot = o; ClosePopup(true); }
         } else {
             ClosePopup(false);
         }
@@ -1646,7 +1888,7 @@ void Window::OnMouseDown(float x, float y, bool dbl) {
     }
     // The scroll bar
     const D2D1_RECT_F cr = ContentRect();
-    if (scrollMax_ > 0 && x >= w_ - 16 && y >= cr.top) {
+    if (scrollMax_ > 0 && x >= w_ - 16 && y >= cr.top && y < cr.bottom) {
         const float trackH = cr.bottom - cr.top - 8, viewH = cr.bottom - cr.top;
         const float thumbH = std::max(32.f, trackH * viewH / (viewH + scrollMax_));
         const float top = cr.top + 4 + (trackH - thumbH) * (scroll_ / scrollMax_);
@@ -1688,12 +1930,15 @@ void Window::OnMouseMove(float x, float y) {
     int h;
     if (popup_.ctl >= 0) {
         if (Inside(popup_.rc, x, y)) {
-            const int o = (int)((y - popup_.rc.top - 4) / popup_.itemH);
-            if (o >= 0 && o < (int)ctls[popup_.ctl].options.size() && o != popup_.hot) { popup_.hot = o; Invalidate(); }
+            const int k = (int)((y - popup_.rc.top - 4) / popup_.itemH), o = popup_.first + k;
+            if (k >= 0 && k < popup_.shown && o < (int)ctls[popup_.ctl].options.size() && o != popup_.hot) {
+                popup_.hot = o;
+                Invalidate();
+            }
         }
         return;
     }
-    h = (scrollMax_ > 0 && x >= w_ - 16 && y >= ContentRect().top) ? -100 : HitTest(x, y);
+    h = (scrollMax_ > 0 && x >= w_ - 16 && y >= ContentRect().top && y < ContentRect().bottom) ? -100 : HitTest(x, y);
     if (h != hot_) { hot_ = h; Invalidate(); }
     TRACKMOUSEEVENT tme{ sizeof(tme), TME_LEAVE, hwnd, 0 };
     TrackMouseEvent(&tme);
@@ -1709,6 +1954,14 @@ void Window::OnMouseUp(float x, float y) {
 }
 
 void Window::OnWheel(int delta) {
+    if (popup_.ctl >= 0 && popup_.shown < (int)ctls[popup_.ctl].options.size()) {   // scroll the long list
+        const int n = (int)ctls[popup_.ctl].options.size();
+        popup_.first = std::clamp(popup_.first - delta * 3 / WHEEL_DELTA, 0, n - popup_.shown);
+        POINT pt; GetCursorPos(&pt); ScreenToClient(hwnd, &pt);
+        OnMouseMove(pt.x / scale_, pt.y / scale_);
+        Invalidate();
+        return;
+    }
     ScrollTo(scroll_ - delta / (float)WHEEL_DELTA * 48 * 3 / 2);
     POINT pt; GetCursorPos(&pt); ScreenToClient(hwnd, &pt);
     OnMouseMove(pt.x / scale_, pt.y / scale_);
@@ -1728,6 +1981,10 @@ LRESULT CALLBACK Window::EditProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) {
         const bool alt = GetKeyState(VK_MENU) < 0, ctrl = GetKeyState(VK_CONTROL) < 0, shift = GetKeyState(VK_SHIFT) < 0;
         const int i = w->editing_;
+        if (wp == 'D' && ctrl && shift && !alt) {   // the debug menu, also while typing (after this message)
+            PostMessageW(w->hwnd, WM_APP_DEBUG, 0, 0);
+            return 0;
+        }
         if (w->popup_.ctl >= 0 && (wp == VK_UP || wp == VK_DOWN || wp == VK_RETURN || wp == VK_ESCAPE || wp == VK_F4 || wp == VK_TAB)) {
             w->OnKey((UINT)wp);
             return 0;
@@ -1748,7 +2005,7 @@ LRESULT CALLBACK Window::EditProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             break;
         }
     }
-    if (msg == WM_CHAR && (wp == L'\t' || wp == L'\r' || wp == 0x1B)) return 0;   // no beep
+    if (msg == WM_CHAR && (wp == L'\t' || wp == L'\r' || wp == 0x1B || wp == 0x04)) return 0;   // no beep (0x04: Ctrl+D)
     const WNDPROC base = w->editBase_;
     if (msg == WM_NCDESTROY) { SetWindowLongPtrW(h, GWLP_WNDPROC, (LONG_PTR)base); RemovePropW(h, L"OverlookSettings"); }
     return CallWindowProcW(base, h, msg, wp, lp);
@@ -1890,6 +2147,10 @@ LRESULT Window::Handle(UINT msg, WPARAM wp, LPARAM lp) {
         if (i >= 0) UiaInvoke(i);
         return 0;
     }
+    case WM_APP_DEBUG:   // Ctrl+Shift+D in the edit box
+        kbdCues_ = true;
+        ToggleDebug();
+        return 0;
     case WM_APP_MOVEFOCUS:
         kbdCues_ = true;
         MoveFocus((int)(INT_PTR)wp);

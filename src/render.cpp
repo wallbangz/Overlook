@@ -808,10 +808,11 @@ ClockRenderer::Target* ClockRenderer::EnsureTarget(HWND hwnd) {
     HRESULT hr = dcomp_->CreateTargetForHwnd(hwnd, TRUE, &t.target);
     if (FAILED(hr)) { Log(L"CreateTargetForHwnd failed 0x%08X", hr); return nullptr; }
     if (FAILED(dcomp_->CreateVisual(&t.root)) || FAILED(dcomp_->CreateVisual(&t.fx)) ||
-        FAILED(dcomp_->CreateVisual(&t.visual)))
+        FAILED(dcomp_->CreateVisual(&t.visual)) || FAILED(dcomp_->CreateVisual(&t.badge)))
         return nullptr;
     t.root->AddVisual(t.fx.Get(), FALSE, nullptr);
     t.root->AddVisual(t.visual.Get(), TRUE, t.fx.Get());   // the text above the effects
+    t.root->AddVisual(t.badge.Get(), TRUE, t.visual.Get());   // and the badge above the text
     t.target->SetRoot(t.root.Get());
     targets_.push_back(std::move(t));
     return &targets_.back();
@@ -822,6 +823,55 @@ IDCompositionVisual* ClockRenderer::FxLayer(HWND hwnd, std::vector<ComPtr<IUnkno
     if (!t) return nullptr;
     if (keep) *keep = &t->fxKeep;
     return t->fx.Get();
+}
+
+void ClockRenderer::ShowBadge(HWND hwnd, const std::wstring& text, int x, int y, float dpi) {
+    Target* t = EnsureTarget(hwnd);
+    if (!t) return;
+    const std::wstring key = text + L"|" + std::to_wstring(dpi);
+    if (text.empty()) {
+        if (t->badgeKey.empty()) return;
+        t->badge->SetContent(nullptr);
+        t->badgeSurface.Reset();
+        t->badgeKey.clear();
+        Commit();
+        return;
+    }
+    if (key != t->badgeKey) {
+        // Small bold capitals on a dark translucent pill: readable on any wallpaper, and plainly
+        // not part of the clock.
+        const float k = dpi / 96.f, size = 11.f, padX = 9.f, padY = 4.f;
+        ComPtr<IDWriteTextLayout> lay = MakeLayout(text, dateFamily_, DWRITE_FONT_WEIGHT_BOLD, size, 8.f, L"");
+        if (!lay) return;
+        DWRITE_TEXT_METRICS m{};
+        lay->GetMetrics(&m);
+        const int W = (int)std::ceil((m.width + 2 * padX) * k), H = (int)std::ceil((m.height + 2 * padY) * k);
+        ComPtr<IDCompositionSurface> s;
+        if (FAILED(dcomp_->CreateSurface(W, H, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_ALPHA_MODE_PREMULTIPLIED, &s))) return;
+        ComPtr<ID2D1DeviceContext> dc;
+        POINT off{};
+        if (FAILED(s->BeginDraw(nullptr, IID_PPV_ARGS(&dc), &off))) return;
+        dc->SetDpi(96, 96);
+        dc->SetTransform(D2D1::Matrix3x2F::Translation((float)off.x, (float)off.y));
+        dc->Clear(D2D1::ColorF(0, 0, 0, 0));
+        ComPtr<ID2D1SolidColorBrush> bg, fg;
+        dc->CreateSolidColorBrush(D2D1::ColorF(0.08f, 0.08f, 0.10f, 0.72f), &bg);
+        dc->CreateSolidColorBrush(D2D1::ColorF(1.0f, 0.72f, 0.18f, 1.f), &fg);   // amber: a warning, not a theme colour
+        if (bg && fg) {
+            dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0, 0, (float)W, (float)H), H / 2.f, H / 2.f), bg.Get());
+            dc->SetTransform(D2D1::Matrix3x2F::Scale(k, k) * D2D1::Matrix3x2F::Translation((float)off.x, (float)off.y));
+            dc->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
+            dc->DrawTextLayout(D2D1::Point2F(padX, padY), lay.Get(), fg.Get());
+        }
+        if (FAILED(s->EndDraw())) return;
+        t->badgeSurface = s;
+        t->badgeW = W; t->badgeH = H;
+        t->badge->SetContent(s.Get());
+        t->badgeKey = key;
+    }
+    t->badge->SetOffsetX((float)(x - t->badgeW / 2));
+    t->badge->SetOffsetY((float)y);
+    Commit();
 }
 
 bool ClockRenderer::Commit() {

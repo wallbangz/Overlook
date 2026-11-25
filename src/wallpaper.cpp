@@ -168,7 +168,10 @@ bool Decode(const std::wstring& path, Cache& c) {
 
     ComPtr<IWICBitmapDecoder> dec;
     hr = wic->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &dec);
-    if (FAILED(hr)) { Log(L"wallpaper: cannot decode %s (0x%08X)", path.c_str(), (unsigned)hr); return false; }
+    if (FAILED(hr)) {
+        Log(L"wallpaper: cannot decode %s (0x%08X)", PrivatePath(path, L"wallpaper").c_str(), (unsigned)hr);
+        return false;
+    }
 
     ComPtr<IWICBitmapFrameDecode> frame;
     if (FAILED(dec->GetFrame(0, &frame))) return false;
@@ -326,7 +329,7 @@ bool SampleWallpaper(const RECT& monitorRect, const RECT& region, WallpaperSampl
             n.hasImage = Decode(rw.path, n);
             QueryPerformanceCounter(&t1);
             Log(L"wallpaper: %s via %s, %ux%u -> %ux%u, mode=%s, decoded in %.1f ms",
-                rw.path.c_str(), rw.source, n.origW, n.origH, n.w, n.h, PosName(rw.pos),
+                PrivatePath(rw.path, L"wallpaper").c_str(), rw.source, n.origW, n.origH, n.w, n.h, PosName(rw.pos),
                 double(t1.QuadPart - t0.QuadPart) * 1000.0 / double(f.QuadPart));
         } else {
             Log(L"wallpaper: no image, solid colour #%02X%02X%02X",

@@ -11,6 +11,10 @@
 #include "settingswindow.h"
 #include "inifile.h"
 
+// main.cpp: the debug menu's "Copy report" text (versions, monitors, each clock's effect, the
+// debug settings in effect; no city, wallpaper, track or path).
+std::wstring EffectsReport();
+
 namespace sw {
 
 using Microsoft::WRL::ComPtr;
@@ -26,9 +30,10 @@ enum class Kind {
     Button,
     Link,
     Reset,      // "Reset": removes a monitor's override
+    Static,     // text only (the DEBUG MODE footer): never focused or clicked
 };
 
-enum Action { kNone, kUndo, kOpenIni, kAppsDefault, kScope, kUrl, kOpenFolder };
+enum Action { kNone, kUndo, kOpenIni, kAppsDefault, kScope, kUrl, kOpenFolder, kOpenLog, kCopyReport };
 
 struct Option { std::wstring value, label; };
 
@@ -66,7 +71,7 @@ struct Ctl {
 };
 
 // One line of a page: a section header or a row of controls (left to right; the first one owns the label).
-enum Note { kStatic, kCityEmpty, kMonitorSpec, kAbout };
+enum Note { kStatic, kCityEmpty, kMonitorSpec, kAbout, kEffectsCity };
 
 struct Item {
     std::wstring header, note;    // header text, or a note line
@@ -197,6 +202,10 @@ private:
     std::vector<int> FocusOrder() const;
     void NotifyFocus();
     void NotifyValue(int i);
+    // debug menu
+    int PageCount() const;                             // the Debug page counts only in debug mode
+    void ToggleDebug();                                // Ctrl+Shift+D
+    void CopyReport(int i);
 
     HINSTANCE inst_;
     SettingsHost host_;
@@ -218,7 +227,10 @@ private:
     int sliderCtl_ = -1;
     float scroll_ = 0, scrollMax_ = 0;
     bool thumbDrag_ = false; float thumbGrab_ = 0;
-    struct Popup { int ctl = -1; int hot = -1; int sel = -1; D2D1_RECT_F rc{}; float itemH = 0; } popup_;
+    // first/shown: a list taller than the window scrolls (shown items from first)
+    struct Popup { int ctl = -1; int hot = -1; int sel = -1; D2D1_RECT_F rc{}; float itemH = 0; int first = 0, shown = 0; } popup_;
+    bool debug_ = false;           // DebugMode=1: the Debug page and the DEBUG MODE footer
+    int debugNav_ = -1, debugLabel_ = -1, copyLink_ = -1;
     HWND edit_ = nullptr;
     WNDPROC editBase_ = nullptr;
     int editing_ = -1;
@@ -232,13 +244,14 @@ private:
     ComPtr<ID2D1HwndRenderTarget> rt_;
     ComPtr<ID2D1SolidColorBrush> brush_;
     ComPtr<IDWriteFactory> dw_;
-    ComPtr<IDWriteTextFormat> body_, caption_, strong_, title_, icon_, iconSmall_, bodyRight_;
+    ComPtr<IDWriteTextFormat> body_, caption_, strong_, title_, icon_, iconSmall_, bodyRight_, badge_;
     std::wstring family_, iconFamily_;
 };
 
 void UiaRaiseFocus(Window& w, int i);
 void UiaRaiseToggle(Window& w, int i, bool on);
 void UiaRaiseValue(Window& w, int i);
+void UiaRaiseName(Window& w, int i, const std::wstring& was);
 LRESULT UiaGetObject(Window& w, WPARAM wp, LPARAM lp);
 void UiaDetach(Window& w);
 

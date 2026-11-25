@@ -135,8 +135,8 @@ void Refresh() {
     }
     if (changed) {
         if (n.active)
-            Log(L"media: %s %s '%s - %s'", n.app.c_str(), n.playing ? L"playing" : L"paused",
-                n.artist.c_str(), n.title.c_str());
+            Log(L"media: %s %s '%s - %s'", Private(n.app).c_str(), n.playing ? L"playing" : L"paused",
+                Private(n.artist).c_str(), Private(n.title).c_str());
         else
             Log(L"media: nothing active (from the allowed apps)");
         if (g_notify) PostMessageW(g_notify, g_msg, 0, 0);

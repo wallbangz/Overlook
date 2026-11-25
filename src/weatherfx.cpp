@@ -260,25 +260,53 @@ bool BuildClouds(IDCompositionDevice* dcomp, IDCompositionVisual* layer, Keep& k
     return true;
 }
 
-// ---- Rain: three depth layers of streaks on tiles that the compositor scrolls. ----
+// ---- Rain: storm clouds above three depth layers of streaks on scrolled tiles. ----
+// Like rain in photos: long, thin, motion-blurred streaks, many faint far ones that read as a
+// haze and a few brighter near ones, all leaning a little with the wind.
 struct RainLayer { int tileW, tileH; double speed, length, width, alpha, perMP; };
 constexpr RainLayer kRain[] = {   // far .. near; tile heights co-prime-ish so the pattern rarely lines up
-    { 520, 509,  700, 22, 1.5, 0.45, 14 },
-    { 560, 613, 1000, 32, 2.0, 0.70, 10 },
-    { 600, 727, 1400, 46, 2.6, 1.00,  7 },
+    { 520, 509,  900, 40, 1.0, 0.35, 70 },
+    { 560, 613, 1300, 62, 1.4, 0.55, 38 },
+    { 600, 727, 1800, 92, 1.9, 0.80, 16 },
 };
 constexpr double kMaxSlant = 25 * kPi / 180;
+constexpr double kStillSlant = 4 * kPi / 180;   // a touch of lean even in still air: dead-vertical reads as scratches
+
+// Rain clouds are the cloud colour pushed toward storm: darker on a bright wallpaper (where the
+// shapes are already mid-grey), greyer on a dark one (where they are light).
+double Luminance(COLORREF c) {   // rough, gamma-encoded: only to tell light shapes from dark ones
+    return (0.2126 * GetRValue(c) + 0.7152 * GetGValue(c) + 0.0722 * GetBValue(c)) / 255;
+}
+
+COLORREF StormColor(COLORREF c) {
+    const double f = Luminance(c) < 0.6 ? 0.62 : 0.80;
+    return RGB((BYTE)(GetRValue(c) * f), (BYTE)(GetGValue(c) * f), (BYTE)(GetBValue(c) * f));
+}
 
 bool BuildRain(IDCompositionDevice* dcomp, IDCompositionVisual* layer, Keep& keep, const Params& p, size_t& bytes) {
-    const double k = p.dpi / 96.0;
+    const double k = p.dpi / 96.0, gain = p.opacity / 0.4;
+    // Tiles are drawn at no more than 125 % and enlarged by the compositor (f): soft streaks
+    // don't need the pixels, and on a 4K monitor at 200 % that saves about two thirds of the memory.
+    const double ts = std::min(k, 1.25), f = k / ts;
+    // Freezing rain and sleet: slower, shorter, chunkier drops with an icy tint.
+    const double speedK = p.icy ? 0.62 : 1, lengthK = p.icy ? 0.45 : 1, widthK = p.icy ? 1.7 : 1;
+    const COLORREF ice = Luminance(p.color) < 0.6 ? RGB(0x3C, 0x5F, 0x82) : RGB(0xC8, 0xE6, 0xFF);
+    auto mix = [](BYTE a, BYTE b, double t) { return (BYTE)std::lround(a + (b - a) * t); };
+    const COLORREF col = p.icy ? RGB(mix(GetRValue(p.color), GetRValue(ice), 0.45), mix(GetGValue(p.color), GetGValue(ice), 0.45),
+                                     mix(GetBValue(p.color), GetBValue(ice), 0.45))
+                               : p.color;
     Rng rng(p.seed);
     IDCompositionVisual* belowLayer = nullptr;
     int total = 0;
-    for (const RainLayer& L : kRain) {
-        const int W = std::max(16, (int)std::lround(L.tileW * k)), H = std::max(16, (int)std::lround(L.tileH * k));
-        const double vy = L.speed * k;
+    for (const RainLayer& L0 : kRain) {
+        RainLayer L = L0;
+        L.speed *= speedK; L.length *= lengthK; L.width *= widthK;
+        const int W = std::max(16, (int)std::lround(L.tileW * ts)), H = std::max(16, (int)std::lround(L.tileH * ts));
+        const double Ws = W * f, Hs = H * f;   // a tile's size on screen
+        const double vy = L.speed * k;         // screen px/s
         // Streaks lean along their velocity; a strong wind is capped so rain never goes sideways.
-        const double ang = std::clamp(std::atan2(p.windVx * k, vy), -kMaxSlant, kMaxSlant);
+        const double still = p.windVx < 0 ? -kStillSlant : kStillSlant;
+        const double ang = std::clamp(std::atan2(p.windVx * k, vy) + still, -kMaxSlant, kMaxSlant);
         const double vx = vy * std::tan(ang), dirX = std::sin(ang), dirY = std::cos(ang);
         const int count = (int)std::lround(p.density * (double(W) * H / 1e6) * L.perMP);
 
@@ -292,8 +320,8 @@ bool BuildRain(IDCompositionDevice* dcomp, IDCompositionVisual* layer, Keep& kee
             ComPtr<ID2D1StrokeStyle> caps;
             ComPtr<ID2D1GradientStopCollection> stops;
             ComPtr<ID2D1LinearGradientBrush> brush;
-            const D2D1_GRADIENT_STOP gs[2] = { { 0.f, Color(p.color, 0.f) },
-                                               { 1.f, Color(p.color, (float)(L.alpha * p.opacity)) } };
+            const D2D1_GRADIENT_STOP gs[2] = { { 0.f, Color(col, 0.f) },
+                                               { 1.f, Color(col, (float)std::min(L.alpha * gain, 1.0)) } };
             HRESULT hr = factory->CreateStrokeStyle(
                 D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND), nullptr, 0, &caps);
             if (SUCCEEDED(hr)) hr = dc->CreateGradientStopCollection(gs, 2, &stops);
@@ -301,8 +329,8 @@ bool BuildRain(IDCompositionDevice* dcomp, IDCompositionVisual* layer, Keep& kee
             if (SUCCEEDED(hr)) {
                 for (int i = 0; i < count; ++i) {
                     const double x = rng.Range(0, W), y = rng.Range(0, H);
-                    const double len = L.length * k * rng.Range(0.75, 1.25), w = L.width * k * rng.Range(0.85, 1.15);
-                    brush->SetOpacity((float)rng.Range(0.6, 1.0));
+                    const double len = L.length * ts * rng.Range(0.6, 1.4), w = L.width * ts * rng.Range(0.85, 1.15);
+                    brush->SetOpacity((float)rng.Range(0.45, 1.0));
                     // Head at (x, y), tail back up the direction of travel; drawn at each
                     // neighbouring tile offset too, so a streak crossing an edge wraps.
                     for (int oy = -1; oy <= 1; ++oy)
@@ -328,7 +356,14 @@ bool BuildRain(IDCompositionDevice* dcomp, IDCompositionVisual* layer, Keep& kee
         ComPtr<IDCompositionVisual> lv;
         if (FAILED(dcomp->CreateVisual(&lv))) return false;
         keep.push_back(lv);
-        const int cols = (p.width + W - 1) / W + 2, rows = (p.height + H - 1) / H + 2;
+        if (f > 1.001) {   // children in tile px, enlarged to screen px; the offset is in screen px
+            ComPtr<IDCompositionScaleTransform> st;
+            if (FAILED(dcomp->CreateScaleTransform(&st))) return false;
+            st->SetScaleX((float)f); st->SetScaleY((float)f);
+            lv->SetTransform(st.Get());
+            keep.push_back(st);
+        }
+        const int cols = (int)std::ceil(p.width / Ws) + 2, rows = (int)std::ceil(p.height / Hs) + 2;
         IDCompositionVisual* below = nullptr;
         for (int j = 0; j < rows; ++j)
             for (int i = 0; i < cols; ++i) {
@@ -341,17 +376,17 @@ bool BuildRain(IDCompositionDevice* dcomp, IDCompositionVisual* layer, Keep& kee
                 below = v.Get();
                 keep.push_back(v);
             }
-        auto ay = LinearLoop(dcomp, -H, 0, H / vy);
+        auto ay = LinearLoop(dcomp, -Hs, 0, Hs / vy);
         if (!ay) return false;
         lv->SetOffsetY(ay.Get());
         keep.push_back(ay);
         if (std::fabs(vx) > 1) {
-            auto ax = vx > 0 ? LinearLoop(dcomp, -W, 0, W / vx) : LinearLoop(dcomp, 0, -W, W / -vx);
+            auto ax = vx > 0 ? LinearLoop(dcomp, -Ws, 0, Ws / vx) : LinearLoop(dcomp, 0, -Ws, Ws / -vx);
             if (!ax) return false;
             lv->SetOffsetX(ax.Get());
             keep.push_back(ax);
         } else {
-            lv->SetOffsetX(-W / 2.f);
+            lv->SetOffsetX((float)(-Ws / 2));
         }
         // Far first (bottom), near last (top).
         if (FAILED(layer->AddVisual(lv.Get(), TRUE, belowLayer))) return false;
@@ -364,19 +399,318 @@ bool BuildRain(IDCompositionDevice* dcomp, IDCompositionVisual* layer, Keep& kee
     return true;
 }
 
+// ---- Fog: a pale veil over everything, thicker mist banks low down, drifting slowly. ----
+// Fog hides the distance rather than filling the sky: a faint even veil, then long soft banks
+// over the lower part of the screen (where the land would be), denser toward the bottom. The
+// banks drift sideways in a seamless loop like the clouds.
+bool BuildFog(IDCompositionDevice* dcomp, IDCompositionVisual* layer, Keep& keep, const Params& p, size_t& bytes) {
+    const double W = p.width, H = p.height, k = p.dpi / 96.0, gain = p.opacity / 0.4;
+    // Fog lightens: the shape colour pulled halfway to white.
+    const COLORREF col = RGB((GetRValue(p.color) + 255) / 2, (GetGValue(p.color) + 255) / 2, (GetBValue(p.color) + 255) / 2);
+    const double dens = std::clamp((double)p.density, 0.5, 1.6);
+
+    // The veil: a tiny solid surface stretched over the monitor.
+    auto veilS = NewSurface(dcomp, 8, 8);
+    if (!veilS) return false;
+    {
+        ComPtr<ID2D1DeviceContext> dc;
+        if (!Begin(veilS.Get(), 8, 8, dc)) return false;
+        dc->Clear(Color(col, (float)std::min((Luminance(p.color) < 0.6 ? 0.07 : 0.04) * gain * dens, 0.4)));
+        if (!End(veilS.Get(), dc.Get())) return false;
+    }
+    keep.push_back(veilS);
+    bytes += 8 * 8 * 4;
+    ComPtr<IDCompositionVisual> veil;
+    ComPtr<IDCompositionScaleTransform> vs;
+    if (FAILED(dcomp->CreateVisual(&veil)) || FAILED(dcomp->CreateScaleTransform(&vs))) return false;
+    vs->SetScaleX((float)(W / 8)); vs->SetScaleY((float)(H / 8));
+    veil->SetContent(veilS.Get());
+    veil->SetTransform(vs.Get());
+    if (FAILED(layer->AddVisual(veil.Get(), TRUE, nullptr))) return false;
+    keep.push_back(veil); keep.push_back(vs);
+
+    // A soft blob, stretched wide and flat into a mist bank.
+    auto blob = NewSurface(dcomp, kDisc, kDisc);
+    if (!blob) return false;
+    {
+        ComPtr<ID2D1DeviceContext> dc;
+        if (!Begin(blob.Get(), kDisc, kDisc, dc)) return false;
+        // Pale mist stands out strongly on a dark wallpaper and hardly at all on a bright one.
+        const float a = (float)std::min(gain * (Luminance(p.color) < 0.6 ? 0.35 : 0.09), 0.8);
+        const D2D1_GRADIENT_STOP gs[3] = { { 0.f, Color(col, a) }, { 0.35f, Color(col, a * 0.7f) }, { 1.f, Color(col, 0.f) } };
+        ComPtr<ID2D1GradientStopCollection> stops;
+        ComPtr<ID2D1RadialGradientBrush> brush;
+        if (SUCCEEDED(dc->CreateGradientStopCollection(gs, 3, &stops)) &&
+            SUCCEEDED(dc->CreateRadialGradientBrush(D2D1::RadialGradientBrushProperties(
+                D2D1::Point2F(kDiscC, kDiscC), {}, kDiscR, kDiscR), stops.Get(), &brush)))
+            dc->FillEllipse(D2D1::Ellipse(D2D1::Point2F(kDiscC, kDiscC), kDiscR, kDiscR), brush.Get());
+        if (!End(blob.Get(), dc.Get()) || !brush) return false;
+    }
+    keep.push_back(blob);
+    bytes += size_t(kDisc) * kDisc * 4;
+
+    Rng rng(p.seed ^ 0xF06u);
+    const double P = W * 1.5;
+    const double driftDip = std::clamp(std::abs(p.windVx) * 0.1, 4.0, 25.0);
+    const double sign = p.windVx < 0 ? -1 : 1, T = P / (driftDip * k);
+    ComPtr<IDCompositionVisual> drift;
+    if (FAILED(dcomp->CreateVisual(&drift))) return false;
+    auto driftX = LinearLoop(dcomp, sign > 0 ? -P : 0, sign > 0 ? 0 : -P, T);
+    if (!driftX) return false;
+    drift->SetOffsetX(driftX.Get());
+    if (FAILED(layer->AddVisual(drift.Get(), TRUE, veil.Get()))) return false;
+    keep.push_back(drift); keep.push_back(driftX);
+
+    const int n = (int)std::lround(14 * dens);
+    IDCompositionVisual* below = nullptr;
+    int visuals = 0;
+    for (int i = 0; i < n; ++i) {
+        // Banks low on the screen, more of them toward the bottom; wide and flat.
+        const double u = rng.Unit();
+        // Centres in the bottom third (a ground fog: the sky above stays clear).
+        const double cy = H * (0.70 + 0.38 * std::sqrt(u)), cx = (i + rng.Range(0.0, 1.0)) / n * P;
+        // About 4 times wider than tall: flatter reads as stripes, taller fills the screen.
+        const double rx = W * rng.Range(0.22, 0.36), ry = H * rng.Range(0.07, 0.11);
+        for (int copy = -1; copy <= 1; ++copy) {
+            ComPtr<IDCompositionVisual> v;
+            ComPtr<IDCompositionScaleTransform> st;
+            if (FAILED(dcomp->CreateVisual(&v)) || FAILED(dcomp->CreateScaleTransform(&st))) return false;
+            st->SetCenterX(kDiscC); st->SetCenterY(kDiscC);
+            st->SetScaleX((float)(rx / kDiscR)); st->SetScaleY((float)(ry / kDiscR));
+            v->SetContent(blob.Get());
+            v->SetTransform(st.Get());
+            v->SetOffsetX((float)(cx + copy * P - kDiscC));
+            v->SetOffsetY((float)(cy - kDiscC));
+            if (FAILED(drift->AddVisual(v.Get(), TRUE, below))) return false;
+            below = v.Get();
+            keep.push_back(v); keep.push_back(st);
+            ++visuals;
+        }
+    }
+    Log(L"weatherfx: fog: veil + %d banks (%d visuals), drift %.0f DIP/s", n, visuals, sign * driftDip);
+    return true;
+}
+
+// ---- Lightning: a soft glow in the sky behind the clouds, now and then. ----
+// Not a full-screen flash (harsh to work next to, and photosensitivity guidance allows at most
+// three flashes a second): one gentle pulse, 80 ms up and ~450 ms down, at most once every
+// 6 s, somewhere along the top, lighting the clouds from behind. The whole schedule is baked
+// into one long repeating animation, so lightning costs no wake-ups either.
+constexpr int kGlow = 256;
+constexpr double kStormPeriod = 97;   // s; prime-ish, so it doesn't line up with the cloud drift
+
+bool BuildLightning(IDCompositionDevice* dcomp, IDCompositionVisual* layer, Keep& keep, const Params& p, size_t& bytes) {
+    auto glow = NewSurface(dcomp, kGlow, kGlow);
+    if (!glow) return false;
+    {
+        ComPtr<ID2D1DeviceContext> dc;
+        if (!Begin(glow.Get(), kGlow, kGlow, dc)) return false;
+        // Brightest at the top centre, fading out downwards and sideways; a cool white whatever
+        // the wallpaper, since lightning lights things up.
+        const D2D1_COLOR_F c = D2D1::ColorF(0.92f, 0.94f, 1.0f, 1.f), c0 = D2D1::ColorF(0.92f, 0.94f, 1.0f, 0.f);
+        const D2D1_GRADIENT_STOP gs[3] = { { 0.f, c }, { 0.4f, D2D1::ColorF(c.r, c.g, c.b, 0.45f) }, { 1.f, c0 } };
+        ComPtr<ID2D1GradientStopCollection> stops;
+        ComPtr<ID2D1RadialGradientBrush> brush;
+        if (SUCCEEDED(dc->CreateGradientStopCollection(gs, 3, &stops)) &&
+            SUCCEEDED(dc->CreateRadialGradientBrush(D2D1::RadialGradientBrushProperties(
+                D2D1::Point2F(kGlow / 2.f, 0), {}, kGlow / 2.f, (float)kGlow), stops.Get(), &brush)))
+            dc->FillRectangle(D2D1::RectF(0, 0, (float)kGlow, (float)kGlow), brush.Get());
+        if (!End(glow.Get(), dc.Get()) || !brush) return false;
+    }
+    keep.push_back(glow);
+    bytes += size_t(kGlow) * kGlow * 4;
+
+    const double W = p.width, H = p.height, gain = p.opacity / 0.4;
+    Rng rng(p.seed ^ 0x7C3Fu);
+    std::vector<Seg> op, xs;
+    double t = rng.Range(3, 9), last = 0, lastX = 0;
+    int flashes = 0;
+    while (t < kStormPeriod - 1.5) {
+        const double peak = std::min(rng.Range(0.16, 0.28) * gain, 0.5), up = 0.08, down = rng.Range(0.35, 0.55);
+        const double x = rng.Range(0.1, 0.9) * W;
+        op.push_back({ last, t - last, { 0, 0, 0, 0 } });                       // dark
+        op.push_back({ t, up, { 0, peak / up, 0, 0 } });                       // rise
+        op.push_back({ t + up, down, { peak, -2 * peak / down, peak / (down * down), 0 } });   // ease out to 0
+        xs.push_back({ lastX, t + up + down - lastX, { x - W * 0.6, 0, 0, 0 } });   // moved while dark
+        last = lastX = t + up + down;
+        t = last + rng.Range(6, 20);
+        ++flashes;
+    }
+    op.push_back({ last, kStormPeriod - last, { 0, 0, 0, 0 } });
+    xs.push_back({ lastX, kStormPeriod - lastX, { xs.empty() ? 0 : xs.back().c[0], 0, 0, 0 } });
+
+    ComPtr<IDCompositionVisual> v;
+    ComPtr<IDCompositionScaleTransform> st;
+    ComPtr<IDCompositionEffectGroup> fx;
+    if (FAILED(dcomp->CreateVisual(&v)) || FAILED(dcomp->CreateScaleTransform(&st)) || FAILED(dcomp->CreateEffectGroup(&fx)))
+        return false;
+    auto opacity = Loop(dcomp, op, kStormPeriod, 0), offX = Loop(dcomp, xs, kStormPeriod, 0);
+    if (!opacity || !offX) return false;
+    st->SetScaleX((float)(W * 1.2 / kGlow));
+    st->SetScaleY((float)(H * 0.75 / kGlow));
+    v->SetContent(glow.Get());
+    v->SetTransform(st.Get());
+    fx->SetOpacity(opacity.Get());
+    v->SetEffect(fx.Get());
+    v->SetOffsetX(offX.Get());
+    if (FAILED(layer->AddVisual(v.Get(), TRUE, nullptr))) return false;
+    keep.push_back(v); keep.push_back(st); keep.push_back(fx); keep.push_back(opacity); keep.push_back(offX);
+    Log(L"weatherfx: lightning: %d flashes per %.0f s", flashes, kStormPeriod);
+    return true;
+}
+
+// ---- Snow: soft flakes in three depth layers, drifting down and swaying. ----
+// Snow falls slowly and wanders: near flakes are bigger, faster and sway wider than far ones.
+// Flakes stay clear of the tile's left and right edges, so each column of tiles can sway on
+// its own phase (no flake is cut between two columns) and the layer never moves in lockstep.
+struct SnowLayer { int tileW, tileH; double speed, rMin, rMax, alpha, perMP, sway, swayPeriod; };
+constexpr SnowLayer kSnow[] = {   // far .. near
+    { 500, 509, 32, 2.2, 3.4, 0.55, 140, 10, 6.5 },
+    { 540, 613, 50, 3.6, 5.4, 0.75,  68, 16, 5.0 },
+    { 580, 727, 78, 5.6, 8.8, 0.95,  26, 24, 3.8 },
+};
+// Sleet's ice pellets: small, hard and fast, barely swaying; sparse among the short streaks.
+constexpr SnowLayer kPellets[] = {
+    { 500, 509, 210, 1.5, 2.2, 0.75, 80, 2, 2.5 },
+    { 540, 613, 300, 2.1, 3.0, 0.90, 45, 3, 2.1 },
+    { 580, 727, 420, 2.8, 4.0, 1.00, 20, 4, 1.7 },
+};
+
+bool BuildSnow(IDCompositionDevice* dcomp, IDCompositionVisual* layer, Keep& keep, const Params& p, size_t& bytes,
+               bool pellets = false) {
+    const double k = p.dpi / 96.0, gain = p.opacity / 0.4;
+    const double ts = std::min(k, 1.25), f = k / ts;   // as rain: tiles at <= 125 %, enlarged on screen
+    Rng rng(p.seed ^ (pellets ? 0x1CEu : 0x5A0Bu));
+    IDCompositionVisual* belowLayer = nullptr;
+    int total = 0;
+    for (const SnowLayer& L : pellets ? kPellets : kSnow) {
+        const int W = std::max(16, (int)std::lround(L.tileW * ts)), H = std::max(16, (int)std::lround(L.tileH * ts));
+        const double Ws = W * f, Hs = H * f;
+        const double vy = L.speed * k;
+        // Snow is light: the wind carries it further sideways than rain, slower layers lean more.
+        const double vx = std::clamp(p.windVx * k * 0.5, -vy * 1.2, vy * 1.2);
+        const int count = (int)std::lround(p.density * (double(W) * H / 1e6) * L.perMP);
+        const double margin = L.rMax * ts + 1;
+
+        auto tile = NewSurface(dcomp, W, H);
+        if (!tile) return false;
+        {
+            ComPtr<ID2D1DeviceContext> dc;
+            if (!Begin(tile.Get(), W, H, dc)) return false;
+            const float a = (float)std::min(L.alpha * gain, 1.0);
+            // Pellets are ice: a harder edge than a flake.
+            const D2D1_GRADIENT_STOP gs[3] = { { 0.f, Color(p.color, a) }, { pellets ? 0.7f : 0.45f, Color(p.color, a * 0.85f) },
+                                               { 1.f, Color(p.color, 0.f) } };
+            ComPtr<ID2D1GradientStopCollection> stops;
+            ComPtr<ID2D1RadialGradientBrush> brush;
+            HRESULT hr = dc->CreateGradientStopCollection(gs, 3, &stops);
+            if (SUCCEEDED(hr)) hr = dc->CreateRadialGradientBrush(D2D1::RadialGradientBrushProperties({}, {}, 1, 1),
+                                                                  stops.Get(), &brush);
+            if (SUCCEEDED(hr)) {
+                for (int i = 0; i < count; ++i) {
+                    const double x = rng.Range(margin, W - margin), y = rng.Range(0, H);
+                    const float r = (float)(rng.Range(L.rMin, L.rMax) * ts);
+                    brush->SetOpacity((float)rng.Range(0.55, 1.0));
+                    brush->SetRadiusX(r); brush->SetRadiusY(r);
+                    // Wrapped vertically only: the tile scrolls down; sideways it never wraps.
+                    for (int oy = -1; oy <= 1; ++oy) {
+                        const D2D1_POINT_2F c = D2D1::Point2F((float)x, (float)(y + oy * H));
+                        brush->SetCenter(c);
+                        dc->FillEllipse(D2D1::Ellipse(c, r, r), brush.Get());
+                    }
+                }
+            } else {
+                Log(L"weatherfx: snow: brush setup failed 0x%08X", hr);
+            }
+            if (!End(tile.Get(), dc.Get()) || FAILED(hr)) return false;
+        }
+        keep.push_back(tile);
+        bytes += size_t(W) * H * 4;
+
+        // Layer (screen px, scrolled down one tile per loop and drifting with the wind), scaled
+        // by f; inside it one visual per column (tile px) swaying on its own phase.
+        ComPtr<IDCompositionVisual> lv;
+        if (FAILED(dcomp->CreateVisual(&lv))) return false;
+        keep.push_back(lv);
+        if (f > 1.001) {
+            ComPtr<IDCompositionScaleTransform> st;
+            if (FAILED(dcomp->CreateScaleTransform(&st))) return false;
+            st->SetScaleX((float)f); st->SetScaleY((float)f);
+            lv->SetTransform(st.Get());
+            keep.push_back(st);
+        }
+        const bool drift = std::fabs(vx) > 1;
+        const int cols = (int)std::ceil(p.width / Ws) + 2, rows = (int)std::ceil(p.height / Hs) + 2;
+        const double amp = L.sway * ts;   // tile px
+        IDCompositionVisual* belowCol = nullptr;
+        for (int i = 0; i < cols; ++i) {
+            ComPtr<IDCompositionVisual> col;
+            if (FAILED(dcomp->CreateVisual(&col))) return false;
+            // A drifting layer loops sideways by one column, so all columns must sway alike or
+            // the loop would show a jump; still air lets each column keep its own phase.
+            const double phase = drift ? 0 : rng.Range(0, L.swayPeriod);
+            auto sx = Loop(dcomp, { Smooth(0, L.swayPeriod / 2, i * W - amp, i * W + amp),
+                                    Smooth(L.swayPeriod / 2, L.swayPeriod / 2, i * W + amp, i * W - amp) },
+                           L.swayPeriod, phase);
+            if (!sx) return false;
+            col->SetOffsetX(sx.Get());
+            keep.push_back(col); keep.push_back(sx);
+            IDCompositionVisual* below = nullptr;
+            for (int j = 0; j < rows; ++j) {
+                ComPtr<IDCompositionVisual> v;
+                if (FAILED(dcomp->CreateVisual(&v))) return false;
+                v->SetContent(tile.Get());
+                v->SetOffsetY((float)(j * H));
+                if (FAILED(col->AddVisual(v.Get(), TRUE, below))) return false;
+                below = v.Get();
+                keep.push_back(v);
+            }
+            if (FAILED(lv->AddVisual(col.Get(), TRUE, belowCol))) return false;
+            belowCol = col.Get();
+        }
+        auto ay = LinearLoop(dcomp, -Hs, 0, Hs / vy);
+        if (!ay) return false;
+        lv->SetOffsetY(ay.Get());
+        keep.push_back(ay);
+        if (drift) {
+            auto ax = vx > 0 ? LinearLoop(dcomp, -Ws, 0, Ws / vx) : LinearLoop(dcomp, 0, -Ws, Ws / -vx);
+            if (!ax) return false;
+            lv->SetOffsetX(ax.Get());
+            keep.push_back(ax);
+        } else {
+            lv->SetOffsetX((float)(-Ws / 2));
+        }
+        if (FAILED(layer->AddVisual(lv.Get(), TRUE, belowLayer))) return false;
+        belowLayer = lv.Get();
+        total += count;
+        Log(L"weatherfx: snow layer %dx%d px, %d flakes, %dx%d tiles, %.0f px/s, drift %.0f px/s",
+            W, H, count, cols, rows, vy, vx);
+    }
+    Log(L"weatherfx: snow: %d flakes in 3 layers", total);
+    return true;
+}
+
 }   // namespace
 
 std::wstring Describe(const Params& p) {
-    static const wchar_t* kNames[] = { L"none", L"clouds", L"rain" };
-    const int kind = std::clamp((int)p.kind, 0, 2);
+    static const wchar_t* kNames[] = { L"none", L"clouds", L"rain", L"snow", L"fog" };
+    const int kind = std::clamp((int)p.kind, 0, 4);
     wchar_t buf[160];
-    swprintf_s(buf, L"%s %dx%d@%ddpi #%02X%02X%02X a%d w%d d%d s%u", kNames[kind], p.width, p.height,
+    swprintf_s(buf, L"%s%s%s %dx%d@%ddpi #%02X%02X%02X a%d w%d d%d s%u", kNames[kind],
+               p.icy ? L"+icy" : L"", p.lightning ? L"+lightning" : L"", p.width, p.height,
                (int)std::lround(p.dpi), GetRValue(p.color), GetGValue(p.color), GetBValue(p.color),
                (int)std::lround(p.opacity * 100), (int)std::lround(p.windVx), (int)std::lround(p.density * 100), p.seed);
     return buf;
 }
 
-bool Show(ClockRenderer& r, HWND hwnd, const Params& p, double fadeSeconds) {
+bool Show(ClockRenderer& r, HWND hwnd, const Params& day, double fadeSeconds) {
+    // At night the sky is quieter: shapes a quarter fainter and a little bluer.
+    Params p = day;
+    if (!p.isDay) {
+        p.opacity *= 0.75f;
+        auto cool = [](BYTE v, BYTE to) { return (BYTE)std::lround(v + (to - v) * 0.25); };
+        p.color = RGB(cool(GetRValue(p.color), 0x70), cool(GetGValue(p.color), 0x84), cool(GetBValue(p.color), 0xB0));
+    }
     Keep* keep = nullptr;
     IDCompositionVisual* layer = r.FxLayer(hwnd, &keep);
     IDCompositionDevice* dcomp = r.Dcomp();
@@ -385,8 +719,50 @@ bool Show(ClockRenderer& r, HWND hwnd, const Params& p, double fadeSeconds) {
     if (p.kind == Kind::None || p.width <= 0 || p.height <= 0) return r.Commit();
 
     size_t bytes = 0;
-    bool ok = p.kind == Kind::Clouds ? BuildClouds(dcomp, layer, *keep, p, bytes)
-                                     : BuildRain(dcomp, layer, *keep, p, bytes);
+    bool ok;
+    if (p.kind == Kind::Clouds) {
+        ok = BuildClouds(dcomp, layer, *keep, p, bytes);
+    } else if (p.kind == Kind::Fog) {
+        ok = BuildFog(dcomp, layer, *keep, p, bytes);
+    } else {
+        // Rain and snow fall from a cloud cover: the particles in one container, the clouds in a
+        // second one explicitly above it (so they hide where the particles start).
+        ComPtr<IDCompositionVisual> fall, sky;
+        ok = SUCCEEDED(dcomp->CreateVisual(&fall)) && SUCCEEDED(dcomp->CreateVisual(&sky)) &&
+             SUCCEEDED(layer->AddVisual(fall.Get(), TRUE, nullptr)) &&
+             SUCCEEDED(layer->AddVisual(sky.Get(), TRUE, fall.Get()));
+        if (ok) {
+            keep->push_back(fall); keep->push_back(sky);
+            Params particles = p, clouds = p;
+            clouds.density = (float)std::clamp(0.9 + 0.5 * p.density, 1.0, 1.6);   // light: broken; heavy: overcast
+            if (p.kind == Kind::Rain) {
+                clouds.color = StormColor(p.color);
+                // On a bright wallpaper mid-grey streaks would vanish: they take the storm tone too.
+                if (Luminance(p.color) < 0.6) particles.color = clouds.color;
+                ok = BuildRain(dcomp, fall.Get(), *keep, particles, bytes);
+                if (ok && p.icy) {   // sleet: ice pellets among the drops, in their own container
+                    ComPtr<IDCompositionVisual> ice;
+                    Params pel = particles;
+                    // Bright ice on a dark wallpaper; on a bright one the icy streak tone carries it.
+                    if (Luminance(p.color) >= 0.6) pel.color = RGB(0xF4, 0xFA, 0xFF);
+                    ok = SUCCEEDED(dcomp->CreateVisual(&ice)) && SUCCEEDED(layer->AddVisual(ice.Get(), TRUE, fall.Get())) &&
+                         BuildSnow(dcomp, ice.Get(), *keep, pel, bytes, true);
+                    if (ice) keep->push_back(ice);
+                }
+                if (ok && p.lightning) {   // between the rain and the clouds: it lights them from behind
+                    ComPtr<IDCompositionVisual> storm;
+                    ok = SUCCEEDED(dcomp->CreateVisual(&storm)) && SUCCEEDED(layer->AddVisual(storm.Get(), TRUE, fall.Get())) &&
+                         BuildLightning(dcomp, storm.Get(), *keep, p, bytes);
+                    if (storm) keep->push_back(storm);
+                }
+            } else {
+                // Snow clouds keep the plain cloud tone, and the flakes the shape colour: light on
+                // a dark wallpaper, mid-grey on a bright one (where white flakes would vanish).
+                ok = BuildSnow(dcomp, fall.Get(), *keep, particles, bytes);
+            }
+            ok = ok && BuildClouds(dcomp, sky.Get(), *keep, clouds, bytes);
+        }
+    }
     if (ok && fadeSeconds > 0) {
         // One effect group on the container fades the whole scene in (nested groups multiply).
         ComPtr<IDCompositionEffectGroup> fx;

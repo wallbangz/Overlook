@@ -107,6 +107,9 @@ public:
     // the same window, with the same devices. keep: objects the effect must hold while it runs
     // (cleared with the layer). Changes show at the next Commit().
     IDCompositionVisual* FxLayer(HWND hwnd, std::vector<ComPtr<IUnknown>>** keep);
+    // A small pill with `text` (e.g. "DEBUG MODE") centred on x, its top at y (px in the window),
+    // above the clock text; "" removes it. Redrawn only when the text or DPI changes. Commits.
+    void ShowBadge(HWND hwnd, const std::wstring& text, int x, int y, float dpi);
     IDCompositionDevice* Dcomp() { return dcomp_.Get(); }
     ID2D1DeviceContext* OffDc() { return offDc_.Get(); }
     bool Commit();
@@ -166,6 +169,10 @@ private:
         ComPtr<IDCompositionVisual> fx;         // weather effects
         std::vector<ComPtr<IUnknown>> fxKeep;
         ComPtr<IDCompositionVisual> visual;     // the text: static frame or transition layers
+        ComPtr<IDCompositionVisual> badge;      // above the text (DEBUG MODE), empty when unused
+        ComPtr<IDCompositionSurface> badgeSurface;
+        std::wstring badgeKey;
+        int badgeW = 0, badgeH = 0;
         ComPtr<IDCompositionSurface> surface;   // the static frame
         int surfaceW = 0, surfaceH = 0;
         std::vector<ComPtr<IUnknown>> anim;     // visuals/surfaces/effects of a running transition

@@ -52,6 +52,7 @@ public:
         case Kind::Slider: return p == UIA_RangeValuePatternId;
         case Kind::Edit: return p == UIA_ValuePatternId;
         case Kind::Color: case Kind::Button: case Kind::Link: case Kind::Reset: return p == UIA_InvokePatternId;
+        case Kind::Static: return false;
         }
         return false;
     }
@@ -312,6 +313,7 @@ IFACEMETHODIMP Element::GetPropertyValue(PROPERTYID p, VARIANT* v) {
         case Kind::Slider: t = UIA_SliderControlTypeId; break;
         case Kind::Edit: t = UIA_EditControlTypeId; break;
         case Kind::Link: t = UIA_HyperlinkControlTypeId; break;
+        case Kind::Static: t = UIA_TextControlTypeId; break;
         default: break;
         }
         v->vt = VT_I4; v->lVal = t;
@@ -322,7 +324,7 @@ IFACEMETHODIMP Element::GetPropertyValue(PROPERTYID p, VARIANT* v) {
         else if (c.kind == Kind::NavItem) str(L"page");
         break;
     case UIA_IsEnabledPropertyId: boolean(c.enabled); break;
-    case UIA_IsKeyboardFocusablePropertyId: boolean(c.enabled); break;
+    case UIA_IsKeyboardFocusablePropertyId: boolean(c.enabled && c.kind != Kind::Static); break;
     case UIA_HasKeyboardFocusPropertyId: boolean(w.FocusIndex() == i && ::GetFocus() == w.hwnd); break;
     case UIA_IsOffscreenPropertyId: boolean(w.Offscreen(i)); break;
     case UIA_IsControlElementPropertyId: case UIA_IsContentElementPropertyId: boolean(true); break;
@@ -440,6 +442,20 @@ void UiaRaiseValue(Window& w, int i) {
             UiaRaiseAutomationPropertyChangedEvent(e, UIA_ExpandCollapseExpandCollapseStatePropertyId, o, s);
         }
     }
+    e->Release();
+}
+
+// A control's name changed (the report link's "Copy" -> "Copied").
+void UiaRaiseName(Window& w, int i, const std::wstring& was) {
+    if (!w.uia || !UiaClientsAreListening() || i < 0 || i >= (int)w.ctls.size()) return;
+    Element* e = ElementFor(w.uia, i);
+    if (!e) return;
+    VARIANT o{}, n{};
+    o.vt = VT_BSTR; o.bstrVal = Bstr(was);
+    n.vt = VT_BSTR; n.bstrVal = Bstr(w.UiaName(i));
+    UiaRaiseAutomationPropertyChangedEvent(e, UIA_NamePropertyId, o, n);
+    VariantClear(&o);
+    VariantClear(&n);
     e->Release();
 }
 

@@ -6,6 +6,7 @@
 #include <vector>
 
 bool g_logEnabled = false;
+bool g_logPrivate = false;
 
 static const wchar_t* kSection = L"Clock";
 static const wchar_t kMonitorPrefix[] = L"Monitor ";   // [Monitor <spec>] override sections
@@ -68,6 +69,35 @@ void Log(const wchar_t* fmt, ...) {
     CloseHandle(h);
 }
 
+static std::wstring Mask(const std::wstring& s, const wchar_t* what, const std::wstring& ext) {
+    unsigned h = 2166136261u;   // FNV-1a, folded to 16 bits: enough to tell names apart in one log
+    for (wchar_t c : s) { h ^= (unsigned)c; h *= 16777619u; }
+    wchar_t buf[96];
+    swprintf_s(buf, L"<%s%s%zu chars #%04X%s%s>", what ? what : L"", what ? L" " : L"", s.size(),
+               (h ^ (h >> 16)) & 0xFFFF, ext.empty() ? L"" : L" ", ext.c_str());
+    return buf;
+}
+
+std::wstring Private(const std::wstring& s) {
+    return g_logPrivate || s.empty() ? s : Mask(s, nullptr, {});
+}
+
+std::wstring PrivatePath(const std::wstring& path, const wchar_t* what) {
+    if (g_logPrivate || path.empty()) return path;
+    const size_t dot = path.find_last_of(L'.'), slash = path.find_last_of(L"\\/");
+    const bool hasExt = dot != std::wstring::npos && (slash == std::wstring::npos || dot > slash) && path.size() - dot <= 6;
+    return Mask(path, what, hasExt ? path.substr(dot) : std::wstring());
+}
+
+std::wstring PrivateIn(const std::wstring& text, const std::wstring& secret) {
+    if (g_logPrivate || secret.empty()) return text;
+    std::wstring out = text;
+    const std::wstring masked = Mask(secret, nullptr, {});
+    for (size_t at = out.find(secret); at != std::wstring::npos; at = out.find(secret, at + masked.size()))
+        out.replace(at, secret.size(), masked);
+    return out;
+}
+
 static const wchar_t kDefaultIni[] =
 L"; Overlook settings. Saved changes are picked up automatically.\r\n"
 L"; The common ones are also in the settings window (tray menu > Settings...), which edits this file in place.\r\n"
@@ -123,11 +153,14 @@ L"WeatherGap=35\r\n"
 L"; Show the chance of rain when it reaches RainThreshold % within the next RainHours hours\r\n"
 L"RainThreshold=30\r\n"
 L"RainHours=6\r\n"
-L"; Weather effects: abstract clouds and rain over the wallpaper, below the clock and icons (needs WeatherCity)\r\n"
+L"; Weather effects: abstract clouds, fog, rain and snow over the wallpaper, below the clock and icons (needs WeatherCity)\r\n"
 L"WeatherEffects=0\r\n"
 L"; How opaque the shapes get, %\r\n"
 L"WeatherEffectsOpacity=40\r\n"
-L"; Always show one effect instead of the real weather: clouds-light, clouds, clouds-heavy or rain (empty = the real weather)\r\n"
+L"; Soft glows in the sky during thunderstorms\r\n"
+L"WeatherEffectsLightning=1\r\n"
+L"; Always show one effect instead of the real weather: clouds-light, clouds, clouds-heavy, fog, rain-light, rain,\r\n"
+L"; rain-heavy, sleet, thunder, snow-light, snow or snow-heavy (empty = the real weather)\r\n"
 L"WeatherEffectsForce=\r\n"
 L"; Show the weather line (ShowWeather=0 in a [Monitor ...] section hides it on that monitor)\r\n"
 L"ShowWeather=1\r\n"
@@ -321,6 +354,7 @@ static void ReadClockKeys(const Src& ini, const Settings& d, Settings& s) {
     s.rainThreshold    = Clamp(ReadNum(ini, L"RainThreshold", d.rainThreshold), 0, 100);
     s.weatherEffects   = ReadBool(ini, L"WeatherEffects", d.weatherEffects);
     s.weatherEffectsOpacity = Clamp(ReadNum(ini, L"WeatherEffectsOpacity", d.weatherEffectsOpacity), 0, 100);
+    s.weatherEffectsLightning = ReadBool(ini, L"WeatherEffectsLightning", d.weatherEffectsLightning);
     s.weatherEffectsForce = ReadStr(ini, L"WeatherEffectsForce", d.weatherEffectsForce);
     s.transitionMs     = Clamp(ReadNum(ini, L"TransitionMs", d.transitionMs), 0, 5000);
     s.hour24           = ReadBool(ini, L"Hour24", d.hour24);
@@ -385,6 +419,24 @@ Settings LoadSettings() {
     s.hiddenMonitors   = ReadStr(ini, L"HiddenMonitors", d.hiddenMonitors);
     s.nowPlayingApps   = ReadStr(ini, L"NowPlayingApps", d.nowPlayingApps);
     s.log              = ReadBool(ini, L"Log", d.log);
+    s.logPrivate       = ReadBool(ini, L"LogPrivate", d.logPrivate);
+    s.weatherEffectsOnBattery = ReadBool(ini, L"WeatherEffectsOnBattery", d.weatherEffectsOnBattery);
+    // The debug menu (not in the default file: it is hidden). Read as written; only used while DebugMode=1.
+    s.debugMode        = ReadBool(ini, L"DebugMode", d.debugMode);
+    s.debugEffectsEverywhere = ReadBool(ini, L"DebugEffectsEverywhere", d.debugEffectsEverywhere);
+    {
+        const std::wstring code = ReadStr(ini, L"DebugWeatherCode", L"");
+        wchar_t* end = nullptr;
+        const long v = code.empty() ? -1 : wcstol(code.c_str(), &end, 10);
+        s.debugWeatherCode = !code.empty() && end != code.c_str() && v >= 0 && v <= 99 ? (int)v : d.debugWeatherCode;
+    }
+    s.debugWindOn      = ReadBool(ini, L"DebugWindOn", d.debugWindOn);
+    s.debugWind        = Clamp(ReadNum(ini, L"DebugWind", d.debugWind), -60, 60);
+    s.debugDensityOn   = ReadBool(ini, L"DebugDensityOn", d.debugDensityOn);
+    s.debugDensity     = Clamp(ReadNum(ini, L"DebugDensity", d.debugDensity), 25, 200);
+    s.debugNight       = ReadBool(ini, L"DebugNight", d.debugNight);
+    s.debugIgnorePauses = ReadBool(ini, L"DebugIgnorePauses", d.debugIgnorePauses);
+    if (s.debugMode && s.debugEffectsEverywhere) s.weatherEffects = true;   // so the pause watch follows too
     return s;
 }
 
@@ -401,6 +453,7 @@ std::vector<std::wstring> MonitorSections() {
 Settings MonitorSettings(const Settings& base, const std::wstring& spec) {
     Settings s = base;
     ReadClockKeys(Src{ IniPath(), kMonitorPrefix + spec }, base, s);
+    if (s.debugMode && s.debugEffectsEverywhere) s.weatherEffects = true;   // also over WeatherEffects=0 here
     return s;
 }
 

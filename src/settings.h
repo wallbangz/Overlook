@@ -63,7 +63,21 @@ struct Settings {
     // Weather effects: abstract shapes over the wallpaper, below the clock and icons (per monitor)
     bool   weatherEffects = false;
     double weatherEffectsOpacity = 40.0;   // % the most opaque shape gets
-    std::wstring weatherEffectsForce;      // "" = from the weather; clouds-light | clouds | clouds-heavy | rain = always that
+    bool   weatherEffectsLightning = true; // soft glows in thunderstorms
+    std::wstring weatherEffectsForce;      // "" = from the weather; clouds-light | clouds | clouds-heavy | fog | rain-light | rain | rain-heavy | sleet | thunder | snow-light | snow | snow-heavy = always that
+    bool   weatherEffectsOnBattery = false;   // app-wide: keep them running on battery (PCs without one never pause)
+
+    // Debug menu (app-wide, hidden: Ctrl+Shift+D in the settings window). Every Debug* key is
+    // ignored unless debugMode is on, so a normal install is never affected by leftovers.
+    bool   debugMode     = false;
+    bool   debugEffectsEverywhere = false;   // WeatherEffects treated as on for every clock (applied by LoadSettings/MonitorSettings)
+    int    debugWeatherCode = -1;            // a WMO code replacing the reading's (counts as fresh, even without a city); -1 = real weather
+    bool   debugWindOn   = false;
+    double debugWind     = 0.0;              // km/h, + = blowing toward the right of the screen
+    bool   debugDensityOn = false;
+    double debugDensity  = 100.0;            // % of the effect's amount
+    bool   debugNight    = false;            // effects drawn as at night
+    bool   debugIgnorePauses = false;        // effects run when covered, on battery... (not with the display off or locked)
 
     // OLED care (per monitor)
     bool   pixelShift    = false;    // move the clock along a slow loop, 1 px at a time
@@ -94,6 +108,7 @@ struct Settings {
     bool   hideClocks    = false;    // app-wide: hide every clock (tray menu)
     std::wstring hiddenMonitors;     // app-wide: "Dell U2720Q;\\.\DISPLAY3" - clocks switched off in the tray menu
     bool   log           = false;
+    bool   logPrivate    = false;    // app-wide: wallpaper names, track titles and the weather place unmasked in the log
 };
 
 std::wstring ExeBase();   // the exe's path without ".exe": Overlook.ini, .log and .weather.ini sit beside it
@@ -115,3 +130,12 @@ void SetAutostart(bool on);
 
 void Log(const wchar_t* fmt, ...);
 extern bool g_logEnabled;
+extern bool g_logPrivate;   // LogPrivate: Private() and friends pass text through unmasked
+
+// For the log: s itself with LogPrivate=1, otherwise "<12 chars #3F2A>" (its length and a short
+// stable hash, so the same name can still be followed through a log without being readable).
+std::wstring Private(const std::wstring& s);
+// A file path the same way, keeping the extension: "<wallpaper 23 chars #1A2B .jpg>".
+std::wstring PrivatePath(const std::wstring& path, const wchar_t* what);
+// text with every occurrence of secret masked (e.g. the city inside an error message).
+std::wstring PrivateIn(const std::wstring& text, const std::wstring& secret);
