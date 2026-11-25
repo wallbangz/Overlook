@@ -4,6 +4,8 @@ What changed in each version of Overlook. Each release on GitHub shows its secti
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-25
+
 ### Added
 - **Update check** (`CheckForUpdates`, on by default; Settings › About). Once a day, Overlook asks GitHub whether a newer release is out. If one is, the tray menu shows **Update available**, a one-time notification says so, and the About page offers **Get the latest release**, which downloads `Overlook.zip` in your browser, and **What's new**. It never downloads or installs anything by itself. `UpdateChannel=beta` also counts pre-releases.
 
@@ -43,7 +45,8 @@ First public release.
 - OLED care: slow pixel shift and night dimming.
 - Pauses while the screen is off or locked; tray menu to hide the clocks or pick monitors; Start with Windows.
 
-[Unreleased]: https://github.com/wallbangz/Overlook/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/wallbangz/Overlook/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/wallbangz/Overlook/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/wallbangz/Overlook/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/wallbangz/Overlook/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/wallbangz/Overlook/compare/v0.1.0...v0.2.0
