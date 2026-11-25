@@ -15,7 +15,7 @@ Overlook is new. If you try it, please [tell me how it went](#feedback).
 - **Now playing**: the artist and track from Spotify and other music apps, dimmed while paused.
 - **Several monitors**: a clock on each, with its own settings, sharp at any display scaling.
 - **OLED care**: an optional slow pixel shift and night dimming.
-- **Light**: one small exe with no installer. It sleeps between minutes and pauses while the screen is off or locked.
+- **Light**: one small exe with no installer. Over an hour it averages about 0.2 s of CPU per minute (under 0.4% of one core) and sleeps in between. It hands its memory back after each minute change, so Task Manager usually shows under 2 MB. The animation runs in Windows' compositor, and the clock pauses while the screen is off or locked.
 
 | The minute changes | The wallpaper changes |
 |---|---|

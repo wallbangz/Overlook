@@ -65,6 +65,7 @@ The [README](../README.md) covers installing and the main settings. This page ha
   - Each text line starts on a whole pixel, so a sliding run lands pixel-identical to the next static frame.
   - The clock window covers its whole monitor and has no redirection bitmap, so it never moves during a transition.
   - A transition costs about 80 ms of CPU per minute for one clock (about 120 ms for two), all of it up front.
+- **Resource use**, measured over one hour (v0.3.0, two clocks, weather and now playing on): 12.8 s of CPU in total, about 0.21 s per minute or 0.36% of one core, with the process asleep between minutes. After each frame it trims its working set (`SetProcessWorkingSetSize(-1, -1)`), so the private working set Task Manager shows had a median of 0.3 MB and stayed under 1.5 MB 95% of the time, peaking briefly at 58 MB while drawing. Committed memory was 100–150 MB, mostly the WARP device and driver; it stays paged out while idle.
 - **Weather** (`WeatherCity`, off while empty): a third line under the time, e.g. `[cloud] 12°  feels 9°  ↑15° ↓7°  [wind] 32 km/h NW  [umbrella] 60% at 15:00  [sunset] 17:21`.
   - Extras, each with its own toggle, appear only when they matter:
     - "feels" appears when the apparent temperature is `FeelsLikeDiff`° (default 2) or more away from the actual temperature.
