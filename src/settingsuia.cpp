@@ -443,6 +443,17 @@ void UiaRaiseValue(Window& w, int i) {
     e->Release();
 }
 
+void UiaRaiseNotice(Window& w, int i, const std::wstring& text) {
+    if (!w.uia || !UiaClientsAreListening() || i < 0 || i >= (int)w.ctls.size() || text.empty()) return;
+    Element* e = ElementFor(w.uia, i);
+    if (!e) return;
+    BSTR s = Bstr(text), id = Bstr(L"OverlookUpdateStatus");
+    UiaRaiseNotificationEvent(e, NotificationKind_ActionCompleted, NotificationProcessing_ImportantMostRecent, s, id);
+    SysFreeString(s);
+    SysFreeString(id);
+    e->Release();
+}
+
 void UiaDetach(Window& w) {
     if (!w.uia) return;
     UiaLink* link = w.uia;

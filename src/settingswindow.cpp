@@ -4,6 +4,7 @@
 // which keeps comments and the user's own values, and applied through the clock's usual reload.
 #include "settingsui.h"
 #include "settings.h"
+#include "update.h"
 #include "../res/resource.h"
 #define OVERLOOK_WIDEN2(s) L##s
 #define OVERLOOK_WIDEN(s) OVERLOOK_WIDEN2(s)
@@ -33,6 +34,7 @@ const float kPaneW = 280, kNavTop = 100, kNavH = 36, kNavGap = 4, kTitleH = 76, 
 const float kMaxCardW = 1000, kCtlH = 32;
 
 std::unique_ptr<Window> g_win;
+std::wstring g_updateText;   // the About page's update status as last shown (to announce changes)
 
 D2D1_COLOR_F Rgb(int r, int g, int b, float a = 1) { return D2D1::ColorF(r / 255.f, g / 255.f, b / 255.f, a); }
 D2D1_COLOR_F FromRef(COLORREF c) { return Rgb(GetRValue(c), GetGValue(c), GetBValue(c)); }
@@ -344,8 +346,28 @@ void Window::BuildControls() {
     };
     const std::wstring repo = L"https://github.com/wallbangz/Overlook";
     link(L"Source code", L"Free and open source, MIT licence", L"GitHub", kUrl, repo);
-    link(L"Updates", L"Download the latest version", L"Releases", kUrl, repo + L"/releases");
     link(L"Report a problem", L"Or suggest an idea", L"Open an issue", kUrl, repo + L"/issues/new/choose");
+    header(5, L"Updates");
+    {
+        const int a = add(Kind::Toggle, 5, L"CheckForUpdates", L"Check for updates automatically",
+                          L"Once a day, asks GitHub (api.github.com) for the latest release. Nothing about you or this PC "
+                          L"is sent, and nothing is installed.", L"1");
+        ctls[a].appWide = true;
+        row({ a });
+        Item it;
+        const int s = add(Kind::Link, -3, L"", L"Updates", L"", L"");   // the row's label; its line is the status
+        ctls[s].visible = false;
+        ctls[s].action = kUpdateStatus;
+        const int n = add(Kind::Link, 5, L"", L"What\u2019s new", L"", L"");
+        ctls[n].action = kWhatsNew;
+        const int g = add(Kind::Button, 5, L"", L"Get the latest release", L"", L"");
+        ctls[g].action = kGetUpdate;
+        const int c = add(Kind::Button, 5, L"", L"Check for updates", L"", L"");
+        ctls[c].action = kCheckUpdates;
+        it.ctls = { s, n, g, c };
+        pages_[5].items.push_back(it);
+    }
+    g_updateText.clear();
     header(5, L"Credits");
     link(L"Weather", L"Data by Open-Meteo.com, CC BY 4.0", L"open-meteo.com", kUrl, L"https://open-meteo.com");
     link(L"Font", L"Inter Display by Rasmus Andersson, SIL Open Font License 1.1", L"rsms.me/inter", kUrl, L"https://rsms.me/inter/");
@@ -486,9 +508,24 @@ void Window::LoadValues() {
             c.desc = name.empty() ? L"Day and month names, e.g. en-GB or pt-PT" : name;
         }
     }
+    // The update check's status line and buttons (the result of a check arrives as a reload).
+    const UpdateStatus u = UpdateCurrent();
+    const std::wstring status = UpdateStatusText(u);
+    int checkBtn = -1;
+    for (size_t i = 0; i < ctls.size(); ++i) {
+        Ctl& c = ctls[i];
+        if (c.action == kUpdateStatus) c.desc = status;
+        if (c.action == kGetUpdate || c.action == kWhatsNew) c.visible = u.newer;
+        if (c.action == kGetUpdate) c.desc = u.latest.zipUrl.empty() ? L"Opens the release page" : L"Downloads Overlook.zip in your browser";
+        if (c.action == kCheckUpdates) { c.desc = status; checkBtn = (int)i; }   // (UI Automation help text)
+    }
+    if (focus_ >= 0 && !ctls[focus_].visible) focus_ = checkBtn;
+    const bool announce = !g_updateText.empty() && g_updateText != status;
+    g_updateText = status;
     UpdateEnabled();
     Layout();
     Invalidate();
+    if (announce) UiaRaiseNotice(*this, checkBtn, status);
 }
 
 void Window::UpdateEnabled() {
@@ -1230,6 +1267,17 @@ void Window::DrawCtl(int i, bool inContent) {
     }
     case Kind::Button: {
         const bool undo = c.action == kUndo;
+        if (c.action == kGetUpdate) {   // the one thing to do on the page: an accent button
+            // Readable text on the green: black on the bright dark-theme green, white on the deeper link green.
+            D2D1_COLOR_F fill = t_.contrast ? t_.accent : t_.dark ? t_.accent : t_.link;
+            if (hot && !t_.contrast) fill.a = 0.9f;
+            const D2D1_COLOR_F text = t_.contrast ? t_.onAccent : t_.dark ? Rgb(0, 0, 0) : Rgb(255, 255, 255);
+            FillRound(r, 4, fill);
+            if (t_.contrast) StrokeRound(r, 4, t_.onAccent);
+            DrawText(c.label, body_.Get(), r, text, DWRITE_TEXT_ALIGNMENT_CENTER);
+            if (focused) FocusRing(r, 4);
+            break;
+        }
         FillRound(r, 4, t_.contrast ? t_.bg : hot ? t_.ctlHover : t_.ctlFill);
         StrokeRound(r, 4, t_.contrast ? tc : t_.ctlStroke);
         if (undo) {
@@ -1359,6 +1407,11 @@ void Window::Activate(int i) {
         else if (c.action == kOpenIni) ShellExecuteW(hwnd, L"open", iniPath_.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         else if (c.action == kUrl) ShellExecuteW(hwnd, L"open", c.url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         else if (c.action == kOpenFolder) ShellExecuteW(hwnd, L"open", ExeDir().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        else if (c.action == kCheckUpdates) { if (host_.checkUpdates) host_.checkUpdates(); LoadValues(); }
+        else if (c.action == kGetUpdate)
+            ShellExecuteW(hwnd, L"open", UpdateDownloadUrl(UpdateCurrent()).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        else if (c.action == kWhatsNew)
+            ShellExecuteW(hwnd, L"open", UpdatePageUrl(UpdateCurrent()).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         else if (c.action == kAppsDefault)
             for (size_t j = 0; j < ctls.size(); ++j) if (ctls[j].key == L"NowPlayingApps") Write((int)j, kDefaultApps);
         break;

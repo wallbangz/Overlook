@@ -4,6 +4,9 @@ What changed in each version of Overlook. Each release on GitHub shows its secti
 
 ## [Unreleased]
 
+### Added
+- **Update check** (`CheckForUpdates`, on by default; Settings › About). Once a day, Overlook asks GitHub whether a newer release is out. If one is, the tray menu shows **Update available**, a one-time notification says so, and the About page offers **Get the latest release**, which downloads `Overlook.zip` in your browser, and **What's new**. It never downloads or installs anything by itself. `UpdateChannel=beta` also counts pre-releases.
+
 ## [0.3.0] - 2026-11-23
 
 ### Added

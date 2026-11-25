@@ -85,6 +85,8 @@ struct Settings {
     // App
     bool   startWithWindows = false;
     bool   trayIcon      = true;
+    bool   checkForUpdates = true;   // app-wide: once a day, ask GitHub for the latest release
+    bool   updateBeta    = false;    // UpdateChannel=beta: pre-releases count too
     bool   show          = true;     // per monitor: this monitor shows a clock (tray menu checkboxes)
     bool   hideClocks    = false;    // app-wide: hide every clock (tray menu)
     std::wstring hiddenMonitors;     // app-wide: "Dell U2720Q;\\.\DISPLAY3" - clocks switched off in the tray menu

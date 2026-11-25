@@ -15,6 +15,7 @@ Overlook is new. If you try it, please [tell me how it went](#feedback).
 - **Now playing**: the artist and track from Spotify and other music apps, dimmed while paused.
 - **Several monitors**: a clock on each, with its own settings, sharp at any display scaling.
 - **OLED care**: an optional slow pixel shift and night dimming.
+- **Update notices**: once a day it asks GitHub whether a newer release is out, and offers it in the tray menu and on the About page. It never downloads or installs anything by itself.
 - **Light**: one small exe with no installer. Over an hour it averages about 0.2 s of CPU per minute (under 0.4% of one core) and sleeps in between. It hands its memory back after each minute change, so Task Manager usually shows under 2 MB. The animation runs in Windows' compositor, and the clock pauses while the screen is off or locked.
 
 | The minute changes | The wallpaper changes |
@@ -46,7 +47,7 @@ Right-click the tray icon and choose **Settings…**. Every change shows on the 
 | **Weather** | The weather line on or off, your city, °C or °F, and the extras: chance of rain, feels like, wind, UV, air quality, sunrise and sunset |
 | **Now playing** | The now-playing line on or off, which apps it listens to, how long it stays after you pause |
 | **Monitors** | Which monitors show a clock, OLED care (pixel shift, night dimming and its opacity) |
-| **About** | Version, links to the source, releases and issues, credits |
+| **About** | Version, checking for updates (once a day, or now) and a button to get the latest release, links to the source and issues, credits |
 
 - **One monitor at a time:** pick a monitor under **Settings for** to give it its own values. A setting a monitor overrides gets a dot and a **Reset** link; under *All monitors* the window tells you which monitor keeps its own value.
 - **Undo changes** puts everything back as it was when you opened the window.
@@ -77,6 +78,7 @@ Overlook has only been tested on a few setups so far, so reports from yours are 
 - The text colour comes from the part of the wallpaper behind the clock.
 - Each line is centred by its visible outline rather than by font measurements. A built-in self-test checks every minute of the day and every date of a year.
 - Weather comes from [Open-Meteo](https://open-meteo.com) every 30 minutes. Only your city name (once) and its coordinates are sent.
+- The update check sends one anonymous request a day to GitHub's API (`api.github.com`), with a generic user agent and nothing about you or your PC. Turn it off on the About page.
 - Now playing listens to Windows' media controls, the same source as the volume flyout, with no polling.
 
 More detail: [docs/DETAILS.md](docs/DETAILS.md).

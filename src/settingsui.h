@@ -28,7 +28,8 @@ enum class Kind {
     Reset,      // "Reset": removes a monitor's override
 };
 
-enum Action { kNone, kUndo, kOpenIni, kAppsDefault, kScope, kUrl, kOpenFolder };
+enum Action { kNone, kUndo, kOpenIni, kAppsDefault, kScope, kUrl, kOpenFolder,
+              kUpdateStatus, kCheckUpdates, kGetUpdate, kWhatsNew };   // About page: the update check
 
 struct Option { std::wstring value, label; };
 
@@ -239,6 +240,7 @@ private:
 void UiaRaiseFocus(Window& w, int i);
 void UiaRaiseToggle(Window& w, int i, bool on);
 void UiaRaiseValue(Window& w, int i);
+void UiaRaiseNotice(Window& w, int i, const std::wstring& text);   // Narrator reads text (e.g. "Up to date")
 LRESULT UiaGetObject(Window& w, WPARAM wp, LPARAM lp);
 void UiaDetach(Window& w);
 
