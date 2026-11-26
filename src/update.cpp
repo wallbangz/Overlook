@@ -183,7 +183,7 @@ bool ParseVersion(const std::wstring& tagIn, Version& out) {
     if (dash != std::string::npos) {
         core = s.substr(0, dash);
         pre = s.substr(dash + 1);
-        if (pre.empty()) return false;
+        if (pre.empty() || pre.size() > 32) return false;   // "beta.1", "rc.2"...; a longer one isn't a real tag
     }
     const auto parts = Split(core, '.');
     Version v;
@@ -452,6 +452,7 @@ int RunUpdateTest(const std::wstring& dir) {
         { L"v01.2.3", false }, { L"v1.2.3-", false }, { L"v1.2.3-beta..1", false }, { L"v1.2.3-beta.01", false },
         { L"v1.2.3+", false }, { L"v-1.2.3", false }, { L"v1.2.3-be ta", false }, { L"v9999999999.0.0", false },
         { L"nightly", false }, { L"v1.2.3-é", false }, { L"vv1.2.3", false },
+        { L"v1.0.0-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", true }, { L"v1.0.0-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", false },
     };
     for (auto& p : kParse) {
         Version v;

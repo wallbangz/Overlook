@@ -888,9 +888,9 @@ std::wstring EffectsReport() {
                                wr.hasWind ? L", wind reported" : L"");
     else swprintf_s(line, L"\r\nWeather: no reading from the last 2 hours\r\n");
     out += line;
-    swprintf_s(line, L"Show (WeatherEffectsForce): %s\r\n", g_s.weatherEffectsForce.empty() ? L"the real weather"
-                                                                                        : g_s.weatherEffectsForce.c_str());
-    out += line;
+    // Appended, not formatted into line[]: the ini value can be up to 511 chars, and swprintf_s ends the process on overflow
+    out += L"Show (WeatherEffectsForce): " +
+           (g_s.weatherEffectsForce.empty() ? std::wstring(L"the real weather") : g_s.weatherEffectsForce) + L"\r\n";
     out += L"\r\nDebug settings\r\n";
     if (!g_s.debugMode) out += L"  debug mode off\r\n";
     else {
@@ -1474,7 +1474,8 @@ LRESULT CALLBACK CtlProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             nid.uFlags = NIF_INFO;
             nid.dwInfoFlags = NIIF_USER | NIIF_LARGE_ICON | NIIF_RESPECT_QUIET_TIME;
             nid.hBalloonIcon = g_trayIcon;
-            swprintf_s(nid.szInfoTitle, L"%s", UpdateStatusText(u).c_str());
+            // The tag comes from GitHub: truncate, as swprintf_s would end the process on overflow (64 chars)
+            wcsncpy_s(nid.szInfoTitle, UpdateStatusText(u).c_str(), _TRUNCATE);
             wcscpy_s(nid.szInfo, L"Get it from the Overlook icon's menu, or from Settings > About.");
             Shell_NotifyIconW(NIM_MODIFY, &nid);
         }

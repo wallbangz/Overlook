@@ -7,6 +7,9 @@ What changed in each version of Overlook. Each release on GitHub shows its secti
 ### Security
 - Windows DLLs that Overlook needs at start-up now load only from System32, so a DLL of the same name next to `Overlook.exe` (for example in Downloads) is never loaded instead. The exe is also built with the compiler's extra security checks and marked compatible with CET shadow stacks.
 
+### Fixed
+- A release with a very long version tag no longer closes Overlook when the update notification shows; the notification title is cut short instead. Such tags (a pre-release part over 32 characters) are now ignored by the update check. The effects report from the Debug page no longer closes Overlook when `WeatherEffectsForce` holds a long value.
+
 ## [0.4.0-beta.1] - 2026-11-25
 
 A beta for trying the weather effects; settings and the ini work as in 0.3.1.
