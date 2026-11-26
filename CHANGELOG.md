@@ -4,6 +4,9 @@ What changed in each version of Overlook. Each release on GitHub shows its secti
 
 ## [Unreleased]
 
+### Security
+- Windows DLLs that Overlook needs at start-up now load only from System32, so a DLL of the same name next to `Overlook.exe` (for example in Downloads) is never loaded instead. The exe is also built with the compiler's extra security checks and marked compatible with CET shadow stacks.
+
 ## [0.4.0-beta.1] - 2026-11-25
 
 A beta for trying the weather effects; settings and the ini work as in 0.3.1.
