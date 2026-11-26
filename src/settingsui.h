@@ -34,7 +34,8 @@ enum class Kind {
 };
 
 enum Action { kNone, kUndo, kOpenIni, kAppsDefault, kScope, kUrl, kOpenFolder, kOpenLog, kCopyReport,
-              kUpdateStatus, kCheckUpdates, kGetUpdate, kWhatsNew };   // the last four: the update check (About page)
+              kUpdateStatus, kCheckUpdates, kGetUpdate, kWhatsNew,   // the update check (About page)
+              kZipDigest, kCopyDigest };                             // the offered zip's SHA-256: its row, and Copy
 
 struct Option { std::wstring value, label; };
 

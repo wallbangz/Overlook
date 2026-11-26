@@ -402,6 +402,19 @@ void Window::BuildControls() {
         it.ctls = { s, n, g, c };
         pages_[5].items.push_back(it);
     }
+    {
+        // The offered zip's SHA-256 as GitHub reports it, to check the download (Get-FileHash). The row
+        // only shows while an update is offered and GitHub gave one (Layout skips it otherwise).
+        Item it;
+        const int d = add(Kind::Link, -3, L"", L"SHA-256 of Overlook.zip", L"", L"");   // the row's label; its line is the hash
+        ctls[d].visible = false;
+        ctls[d].action = kZipDigest;
+        const int k = add(Kind::Link, 5, L"", kCopyText, L"", L"");
+        ctls[k].action = kCopyDigest;
+        ctls[k].visible = false;
+        it.ctls = { d, k };
+        pages_[5].items.push_back(it);
+    }
     g_updateText.clear();
     header(5, L"Credits");
     link(5, L"Weather", L"Data by Open-Meteo.com, CC BY 4.0", L"open-meteo.com", kUrl, L"https://open-meteo.com");
@@ -636,12 +649,19 @@ void Window::LoadValues() {
     const UpdateStatus u = UpdateCurrent();
     const std::wstring status = UpdateStatusText(u);
     int checkBtn = -1;
+    const bool digest = u.newer && !u.latest.zipUrl.empty() && !u.latest.zipSha256.empty();
     for (size_t i = 0; i < ctls.size(); ++i) {
         Ctl& c = ctls[i];
         if (c.action == kUpdateStatus) c.desc = status;
         if (c.action == kGetUpdate || c.action == kWhatsNew) c.visible = u.newer;
         if (c.action == kGetUpdate) c.desc = u.latest.zipUrl.empty() ? L"Opens the release page" : L"Downloads Overlook.zip in your browser";
         if (c.action == kCheckUpdates) { c.desc = status; checkBtn = (int)i; }   // (UI Automation help text)
+        if (c.action == kZipDigest) c.desc = digest ? u.latest.zipSha256 : L"";
+        if (c.action == kCopyDigest) {
+            if (c.visible != digest || c.desc != u.latest.zipSha256) c.label = kCopyText;   // a new hash: not "Copied"
+            c.visible = digest;
+            c.desc = u.latest.zipSha256;
+        }
     }
     if (focus_ >= 0 && !ctls[focus_].visible) focus_ = checkBtn;
     const bool announce = !g_updateText.empty() && g_updateText != status;
@@ -1132,6 +1152,11 @@ void Window::LayoutPage(Page& p) {
             first = false;
             continue;
         }
+        if (ctls[it.ctls[0]].action == kZipDigest && !ctls[it.ctls.back()].visible) {   // no hash to show: no row
+            for (int i : it.ctls) ctls[i].box = {};
+            it.rc = {};
+            continue;
+        }
         // A row: controls right-aligned, label and description on the left.
         float xr = x1 - kPad;
         float ctlsW = 0;
@@ -1434,7 +1459,8 @@ void Window::DrawCtl(int i, bool inContent) {
         D2D1_COLOR_F col = c.enabled ? t_.link : t_.disabled;
         if (hot && !t_.contrast) col.a = 0.8f;
         if (c.kind == Kind::Link) {
-            const wchar_t ic[2] = { c.action == kCopyReport ? (wchar_t)0xE8C8 : (wchar_t)0xE8A7, 0 };   // Copy / Open in new window
+            const bool copy = c.action == kCopyReport || c.action == kCopyDigest;
+            const wchar_t ic[2] = { copy ? (wchar_t)0xE8C8 : (wchar_t)0xE8A7, 0 };   // Copy / Open in new window
             DrawText(c.label, body_.Get(), { r.left + 2, r.top, r.right - 24, r.bottom }, col);
             DrawText(ic, iconSmall_.Get(), { r.right - 20, r.top, r.right - 4, r.bottom }, col);
         } else {
@@ -1583,7 +1609,7 @@ void Window::Activate(int i) {
                 }
             if (!shown) ShellExecuteW(hwnd, L"open", ExeDir().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         }
-        else if (c.action == kCopyReport) CopyReport(i);
+        else if (c.action == kCopyReport || c.action == kCopyDigest) CopyReport(i);
         else if (c.action == kCheckUpdates) { if (host_.checkUpdates) host_.checkUpdates(); LoadValues(); }
         else if (c.action == kGetUpdate)
             ShellExecuteW(hwnd, L"open", UpdateDownloadUrl(UpdateCurrent()).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
@@ -1617,10 +1643,11 @@ void Window::ToggleDebug() {
         if (ctls[j].key == L"DebugMode") UiaRaiseToggle(*this, (int)j, debug_);
 }
 
-// "Copy report": the effects report as plain text on the clipboard; the link says "Copied" until
-// the page changes.
+// "Copy report": the effects report as plain text on the clipboard, or the offered zip's SHA-256
+// (the About page's Copy); the link says "Copied" until the page changes.
 void Window::CopyReport(int i) {
-    std::wstring text = EffectsReport();
+    std::wstring text = ctls[i].action == kCopyDigest ? UpdateCurrent().latest.zipSha256 : EffectsReport();
+    if (text.empty()) { MessageBeep(MB_ICONWARNING); return; }
     bool ok = false;
     if (OpenClipboard(hwnd)) {
         EmptyClipboard();
@@ -1812,7 +1839,8 @@ int Window::PageCount() const { return (int)pages_.size() - (debug_ ? 0 : 1); }
 void Window::SetPage(int p) {
     p = (p + PageCount()) % PageCount();
     if (p == page_) return;
-    if (copyLink_ >= 0 && ctls[copyLink_].label != kCopyText) ctls[copyLink_].label = kCopyText;   // "Copied" until the page changes
+    for (auto& c : ctls)   // "Copied" until the page changes
+        if (c.action == kCopyReport || c.action == kCopyDigest) c.label = kCopyText;
     EndEdit(true);
     ClosePopup(false);
     if (sliderPending_) CommitSlider();

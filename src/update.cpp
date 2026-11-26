@@ -61,11 +61,25 @@ std::vector<std::string> Split(const std::string& s, char sep) {
     }
 }
 
-// Only links into github.com are opened.
+// Only links into this project on github.com are opened. No "..", "\" or "%": a browser would
+// resolve "/../" (and its %2e or backslash spellings) out of the project's path.
 bool SafeUrl(const std::wstring& u) {
-    if (u.size() > 2048 || u.compare(0, 19, L"https://github.com/") != 0) return false;
-    for (wchar_t c : u) if (c <= L' ' || c == L'"' || c > 0x7E) return false;
+    static const wchar_t kPrefix[] = L"https://github.com/wallbangz/Overlook/";
+    if (u.size() > 2048 || u.compare(0, ARRAYSIZE(kPrefix) - 1, kPrefix) != 0 || u.find(L"..") != std::wstring::npos)
+        return false;
+    for (wchar_t c : u) if (c <= L' ' || c == L'"' || c == L'\\' || c == L'%' || c > 0x7E) return false;
     return true;
+}
+
+// GitHub's asset digest "sha256:<64 hex digits>" as 64 lowercase hex digits; empty if it isn't one.
+std::wstring Sha256Of(const std::wstring& digest) {
+    if (digest.size() != 7 + 64 || _wcsnicmp(digest.c_str(), L"sha256:", 7) != 0) return {};
+    std::wstring hex = digest.substr(7);
+    for (wchar_t& c : hex) {
+        c = (wchar_t)towlower(c);
+        if (!((c >= L'0' && c <= L'9') || (c >= L'a' && c <= L'f'))) return {};
+    }
+    return hex;
 }
 
 ULONGLONG NowTicks() {
@@ -140,6 +154,7 @@ void RunCheck(HWND notify, UINT msg, bool beta) {
         CacheSet(L"Tag", info.tag);
         CacheSet(L"Page", info.pageUrl);
         CacheSet(L"Zip", info.zipUrl);
+        CacheSet(L"ZipSha256", info.zipSha256);
         {
             Lock l;
             g_status.state = newer ? UpdateState::Available : UpdateState::UpToDate;
@@ -266,6 +281,8 @@ bool PickRelease(const std::string& json, bool beta, ReleaseInfo& out) {
                 if (GetStr(Get(&a, "name"), name) && _stricmp(name.c_str(), "Overlook.zip") == 0 &&
                     GetStr(Get(&a, "browser_download_url"), url) && SafeUrl(Widen(url))) {
                     info.zipUrl = Widen(url);
+                    std::string digest;
+                    if (GetStr(Get(&a, "digest"), digest)) info.zipSha256 = Sha256Of(Widen(digest));
                     break;
                 }
             }
@@ -287,7 +304,10 @@ void UpdateInit(bool enabled) {
     g_status.latest.tag = CacheGet(L"Tag");
     const std::wstring page = CacheGet(L"Page"), zip = CacheGet(L"Zip");
     if (SafeUrl(page)) g_status.latest.pageUrl = page;
-    if (SafeUrl(zip)) g_status.latest.zipUrl = zip;
+    if (SafeUrl(zip)) {
+        g_status.latest.zipUrl = zip;
+        g_status.latest.zipSha256 = Sha256Of(L"sha256:" + CacheGet(L"ZipSha256"));
+    }
     g_newer = Newer(g_status.latest.tag);
     g_status.state = g_newer ? UpdateState::Available : UpdateState::UpToDate;
 }
@@ -489,6 +509,7 @@ int RunUpdateTest(const std::wstring& dir) {
         r.Check(i.tag == L"v0.3.0", "latest sample: tag v0.3.0");
         r.Check(i.pageUrl == L"https://github.com/wallbangz/Overlook/releases/tag/v0.3.0", "latest sample: release page");
         r.Check(i.zipUrl == L"https://github.com/wallbangz/Overlook/releases/download/v0.3.0/Overlook.zip", "latest sample: Overlook.zip");
+        r.Check(i.zipSha256 == L"cd89236d93a0d2d767282bac19641f3103865244a3130ee6ad9b5574dbe88ad9", "latest sample: the zip's SHA-256");
         Version v, older, same;
         ParseVersion(i.tag, v);
         ParseVersion(L"0.2.1", older);
@@ -509,7 +530,23 @@ int RunUpdateTest(const std::wstring& dir) {
         r.Check(PickRelease(draft, true, i) && i.tag.empty(), "latest sample as a draft: ignored, even on the beta channel");
         std::string noZip = kLatestSample;
         noZip.replace(noZip.find("\"Overlook.zip\""), 14, "\"Other.zip\"");
-        r.Check(PickRelease(noZip, false, i) && i.zipUrl.empty() && !i.pageUrl.empty(), "latest sample without Overlook.zip: no zip");
+        r.Check(PickRelease(noZip, false, i) && i.zipUrl.empty() && i.zipSha256.empty() && !i.pageUrl.empty(),
+                "latest sample without Overlook.zip: no zip, no SHA-256");
+        auto with = [](std::string s, const char* from, const char* to) { s.replace(s.find(from), strlen(from), to); return s; };
+        ReleaseInfo j;
+        r.Check(PickRelease(with(kLatestSample, "\"sha256:cd89", "\"sha1:cd89"), false, j) && !j.zipUrl.empty() && j.zipSha256.empty(),
+                "a digest that isn't sha256: no SHA-256 shown");
+        r.Check(PickRelease(with(kLatestSample, "88ad9\"", "88ad\""), false, j) && j.zipSha256.empty(), "a short digest: no SHA-256 shown");
+        r.Check(PickRelease(with(kLatestSample, "\"sha256:cd89", "\"SHA256:CD89"), false, j) &&
+                j.zipSha256 == L"cd89236d93a0d2d767282bac19641f3103865244a3130ee6ad9b5574dbe88ad9", "an upper-case digest: lowered");
+        const char kZip[] = "https://github.com/wallbangz/Overlook/releases/download/v0.3.0/Overlook.zip";
+        for (const char* bad : { "https://github.com/someone/Overlook/releases/download/v0.3.0/Overlook.zip",
+                                 "https://github.com/wallbangz/OverlookX/releases/download/v0.3.0/Overlook.zip",
+                                 "https://github.com/wallbangz/Overlook/../../someone/x/Overlook.zip",
+                                 "https://github.com/wallbangz/Overlook/%2e%2e/%2e%2e/someone/Overlook.zip",
+                                 "https://github.com/wallbangz/Overlook\\\\..\\\\..\\\\someone/Overlook.zip" })
+            r.Check(PickRelease(with(kLatestSample, kZip, bad), false, j) && j.zipUrl.empty() && j.zipSha256.empty(),
+                    std::string("a zip outside the project is dropped: ") + bad);
         UpdateStatus s;
         s.latest = i;
         r.Check(UpdateDownloadUrl(s) == i.pageUrl, "without the zip, Get the latest release opens the release page");
@@ -579,7 +616,8 @@ int RunUpdateTest(const std::wstring& dir) {
         } else {
             r.Note("live, " + ch + ": latest " + (i.tag.empty() ? std::string("(none)") : Narrow(i.tag)) +
                    (Newer(i.tag) ? ", newer than this build" : ", not newer than this build") +
-                   "\r\n        zip  " + Narrow(i.zipUrl) + "\r\n        page " + Narrow(i.pageUrl));
+                   "\r\n        zip  " + Narrow(i.zipUrl) + "\r\n        page " + Narrow(i.pageUrl) +
+                   "\r\n        sha256 " + (i.zipSha256.empty() ? std::string("(none)") : Narrow(i.zipSha256)));
         }
     }
 

@@ -5,6 +5,8 @@ What changed in each version of Overlook. Each release on GitHub shows its secti
 ## [Unreleased]
 
 ### Security
+- When an update is offered, the About page shows the SHA-256 of its `Overlook.zip` as GitHub reports it, with **Copy**, so a download can be checked with `Get-FileHash`.
+- The update check only opens links into the project's own GitHub pages (`github.com/wallbangz/Overlook/`), not any github.com address.
 - Windows DLLs that Overlook needs at start-up now load only from System32, so a DLL of the same name next to `Overlook.exe` (for example in Downloads) is never loaded instead. The exe is also built with the compiler's extra security checks and marked compatible with CET shadow stacks.
 
 ### Fixed

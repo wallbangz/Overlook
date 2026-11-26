@@ -22,10 +22,11 @@ struct ReleaseInfo {
     std::wstring tag;        // "v0.4.0"; empty = no eligible release
     std::wstring pageUrl;    // its release page (html_url)
     std::wstring zipUrl;     // its Overlook.zip (browser_download_url), empty if missing
+    std::wstring zipSha256;  // that zip's SHA-256 from GitHub (the asset's "digest"), 64 lowercase hex digits; empty if not given
 };
 
 // The newest eligible release in GitHub's JSON: one release object (/releases/latest) or an
-// array of them (/releases). Drafts, malformed tags and URLs outside github.com are skipped;
+// array of them (/releases). Drafts, malformed tags and URLs outside github.com/wallbangz/Overlook/ are skipped;
 // pre-releases (flagged, or with a "-..." tag) count only when beta is set. False only when the
 // JSON can't be read.
 bool PickRelease(const std::string& json, bool beta, ReleaseInfo& out);
