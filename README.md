@@ -87,7 +87,7 @@ More detail: [docs/DETAILS.md](docs/DETAILS.md).
 
 ## Build
 
-Run `build.cmd`. It needs Visual Studio 2022 or later (any edition, or the Build Tools) with **Desktop development with C++**, and finds it by itself. The output is `bin\Overlook.exe`. GitHub Actions builds every push and attaches a zip to each `v*` release.
+Run `build.cmd`. It needs Visual Studio 2022 or later (any edition, or the Build Tools) with **Desktop development with C++**, and finds it by itself. The output is `bin\Overlook.exe`. GitHub Actions builds every push, runs `--ini-test`, `--update-test` and `--weather-test` (a failure fails the build; the reports are kept as the `selftest` artifact), and attaches a zip to each `v*` release.
 
 ## Credits and licence
 

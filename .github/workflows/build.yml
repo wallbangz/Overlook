@@ -20,6 +20,24 @@ jobs:
         shell: cmd
         run: build.cmd
 
+      # A GUI-subsystem exe: Start-Process -Wait is what makes PowerShell wait for it and see its exit code.
+      # The update test's live check is only reported, so a runner without network access still passes.
+      - name: Self-tests
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force selftest | Out-Null
+          foreach ($t in '--ini-test', '--update-test', '--weather-test') {
+            $p = Start-Process bin\Overlook.exe -ArgumentList "$t `"$PWD\selftest`"" -Wait -PassThru
+            "$t exit $($p.ExitCode)"
+            if ($p.ExitCode -ne 0) { throw "$t failed ($($p.ExitCode))" }
+          }
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: selftest
+          path: selftest
+
       - name: Package
         shell: pwsh
         run: |
