@@ -1117,7 +1117,7 @@ LRESULT CALLBACK CtlProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case ID_RELOAD: PostMessageW(hwnd, WM_APP_RELOAD, 0, 0); break;
         case ID_SETTINGS: PostMessageW(hwnd, WM_APP_SETTINGS, 0, 0); break;
         case ID_EDIT:   ShellExecuteW(nullptr, L"open", IniPath().c_str(), nullptr, nullptr, SW_SHOWNORMAL); break;
-        case ID_FOLDER: ShellExecuteW(nullptr, L"open", ExeDir().c_str(), nullptr, nullptr, SW_SHOWNORMAL); break;
+        case ID_FOLDER: ShellExecuteW(nullptr, L"open", DataDir().c_str(), nullptr, nullptr, SW_SHOWNORMAL); break;
         case ID_AUTOSTART: {
             bool on = !IsAutostartEnabled();
             SetAutostart(on);
@@ -1443,13 +1443,13 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR cmdLine, int) {
         std::wstring dir = t + wcslen(L"--ini-test");
         while (!dir.empty() && (iswspace(dir.front()) || dir.front() == L'"')) dir.erase(dir.begin());
         while (!dir.empty() && (iswspace(dir.back()) || dir.back() == L'"')) dir.pop_back();
-        return RunIniTest(dir.empty() ? ExeDir() : dir);
+        return RunIniTest(dir.empty() ? DataDir() : dir);
     }
     if (const wchar_t* t = wcsstr(cmdLine, L"--update-test")) {   // --update-test <folder>: version and JSON checks
         std::wstring dir = t + wcslen(L"--update-test");
         while (!dir.empty() && (iswspace(dir.front()) || dir.front() == L'"')) dir.erase(dir.begin());
         while (!dir.empty() && (iswspace(dir.back()) || dir.back() == L'"')) dir.pop_back();
-        return RunUpdateTest(dir.empty() ? ExeDir() : dir);
+        return RunUpdateTest(dir.empty() ? DataDir() : dir);
     }    if (const wchar_t* t = wcsstr(cmdLine, L"--weather-test")) {
         std::wstring dir = t + wcslen(L"--weather-test");
         while (!dir.empty() && (iswspace(dir.front()) || dir.front() == L'"')) dir.erase(dir.begin());
@@ -1484,7 +1484,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR cmdLine, int) {
             trim(wall);
         }
         trim(dir);
-        if (dir.empty()) dir = ExeDir();
+        if (dir.empty()) dir = DataDir();
         CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         const int rc = RunPreview(dir, wall);
         CoUninitialize();
@@ -1543,14 +1543,14 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR cmdLine, int) {
     }
 
     // Event-driven watches (no polling):
-    //  - the exe folder, so saved .ini edits apply without restarting;
+    //  - the settings folder, so saved .ini edits apply without restarting;
     //  - Explorer's Themes folder, rewritten whenever the wallpaper changes (slideshow
     //    changes are not always broadcast as WM_SETTINGCHANGE).
     wchar_t appData[MAX_PATH] = L"";
     GetEnvironmentVariableW(L"APPDATA", appData, MAX_PATH);
     const std::wstring themesDir = std::wstring(appData) + L"\\Microsoft\\Windows\\Themes";
     HANDLE watches[2] = {
-        FindFirstChangeNotificationW(ExeDir().c_str(), FALSE, FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_FILE_NAME),
+        FindFirstChangeNotificationW(DataDir().c_str(), FALSE, FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_FILE_NAME),
         FindFirstChangeNotificationW(themesDir.c_str(), FALSE, FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_FILE_NAME),
     };
     const UINT_PTR watchTimers[2] = { TIMER_RELOAD, TIMER_WALLPAPER };

@@ -4,6 +4,9 @@ What changed in each version of Overlook. Each release on GitHub shows its secti
 
 ## [Unreleased]
 
+### Fixed
+- **Settings weren't kept when Overlook was in a read-only folder** such as `C:\Program Files`: no `Overlook.ini` was created, the settings window couldn't save, and **Edit settings file** did nothing. Overlook still keeps its files beside the exe when it can. When that folder can't be written, it now uses `%APPDATA%\Overlook`, copying an `Overlook.ini` found beside the exe there once. **Open folder** opens whichever folder is in use.
+
 ## [0.3.1] - 2026-11-25
 
 ### Added

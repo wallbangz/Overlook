@@ -53,7 +53,7 @@ Right-click the tray icon and choose **Settings…**. Every change shows on the 
 - **Undo changes** puts everything back as it was when you opened the window.
 - It follows Windows' light and dark mode and high contrast, works from the keyboard, and works with screen readers.
 
-Everything is stored in `Overlook.ini` next to the exe. The window edits it in place and keeps your comments. For the less common settings (gaps, letter spacing, shadow detail, thresholds, OpenType features), choose **Edit settings file…** in the tray menu; changes apply as soon as you save. Any setting can be different on one monitor:
+Everything is stored in `Overlook.ini` next to the exe (or in `%APPDATA%\Overlook` if that folder is read-only, such as under Program Files). The window edits it in place and keeps your comments. For the less common settings (gaps, letter spacing, shadow detail, thresholds, OpenType features), choose **Edit settings file…** in the tray menu; changes apply as soon as you save. Any setting can be different on one monitor:
 
 ```ini
 [Monitor primary]

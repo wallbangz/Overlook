@@ -372,7 +372,7 @@ void Window::BuildControls() {
     link(L"Weather", L"Data by Open-Meteo.com, CC BY 4.0", L"open-meteo.com", kUrl, L"https://open-meteo.com");
     link(L"Font", L"Inter Display by Rasmus Andersson, SIL Open Font License 1.1", L"rsms.me/inter", kUrl, L"https://rsms.me/inter/");
     header(5, L"Files");
-    link(L"Settings and logs", ExeDir().c_str(), L"Open folder", kOpenFolder, L"");
+    link(L"Settings and logs", DataDir().c_str(), L"Open folder", kOpenFolder, L"");
 }
 
 // One on/off row per monitor of the Monitor= set, after the "Clocks" header and its note. Rows
@@ -1406,7 +1406,7 @@ void Window::Activate(int i) {
         if (c.action == kUndo) Undo();
         else if (c.action == kOpenIni) ShellExecuteW(hwnd, L"open", iniPath_.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         else if (c.action == kUrl) ShellExecuteW(hwnd, L"open", c.url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-        else if (c.action == kOpenFolder) ShellExecuteW(hwnd, L"open", ExeDir().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        else if (c.action == kOpenFolder) ShellExecuteW(hwnd, L"open", DataDir().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         else if (c.action == kCheckUpdates) { if (host_.checkUpdates) host_.checkUpdates(); LoadValues(); }
         else if (c.action == kGetUpdate)
             ShellExecuteW(hwnd, L"open", UpdateDownloadUrl(UpdateCurrent()).c_str(), nullptr, nullptr, SW_SHOWNORMAL);

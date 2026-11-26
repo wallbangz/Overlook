@@ -375,7 +375,7 @@ void BuildReal(Builder& b, ULONGLONG nowReal) {
 }  // namespace
 
 int RunWeatherTest(const std::wstring& outDirArg) {
-    std::wstring dir = outDirArg.empty() ? ExeDir() : outDirArg;
+    std::wstring dir = outDirArg.empty() ? DataDir() : outDirArg;
     if (!dir.empty() && dir.back() != L'\\' && dir.back() != L'/') dir += L'\\';
     CreateDirectoryW(dir.c_str(), nullptr);   // no-op if it exists
 
