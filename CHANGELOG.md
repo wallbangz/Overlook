@@ -4,6 +4,13 @@ What changed in each version of Overlook. Each release on GitHub shows its secti
 
 ## [Unreleased]
 
+## [0.4.0-beta.2] - 2026-11-26
+
+A beta with the 0.3.2 fix; the weather effects are as in beta.1.
+
+### Fixed
+- **Settings weren't kept when Overlook was in a read-only folder** such as `C:\Program Files`. When the exe's folder can't be written, the settings, log and caches now go to `%APPDATA%\Overlook`, and **Open folder** and **Open log folder** open it (from 0.3.2).
+
 ## [0.3.2] - 2026-11-26
 
 ### Fixed
@@ -66,7 +73,8 @@ First public release.
 - OLED care: slow pixel shift and night dimming.
 - Pauses while the screen is off or locked; tray menu to hide the clocks or pick monitors; Start with Windows.
 
-[Unreleased]: https://github.com/wallbangz/Overlook/compare/v0.4.0-beta.1...HEAD
+[Unreleased]: https://github.com/wallbangz/Overlook/compare/v0.4.0-beta.2...HEAD
+[0.4.0-beta.2]: https://github.com/wallbangz/Overlook/compare/v0.4.0-beta.1...v0.4.0-beta.2
 [0.4.0-beta.1]: https://github.com/wallbangz/Overlook/compare/v0.3.1...v0.4.0-beta.1
 [0.3.2]: https://github.com/wallbangz/Overlook/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/wallbangz/Overlook/compare/v0.3.0...v0.3.1
