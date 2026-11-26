@@ -1,4 +1,5 @@
 #include "settings.h"
+#include <shlobj.h>
 #include <cstdio>
 #include <cstdarg>
 #include <cwchar>
@@ -30,11 +31,45 @@ std::wstring ExeDir() {
     return s == std::wstring::npos ? L"." : p.substr(0, s);
 }
 
-std::wstring ExeBase() {
-    std::wstring p = ExePath();
-    const size_t dot = p.find_last_of(L'.'), slash = p.find_last_of(L"\\/");
-    return dot == std::wstring::npos || (slash != std::wstring::npos && dot < slash) ? p : p.substr(0, dot);
+static bool CanWriteIn(const std::wstring& dir) {
+    const std::wstring probe = dir + L"\\Overlook.write-test.tmp";
+    HANDLE h = CreateFileW(probe.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                           FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    CloseHandle(h);
+    return true;
 }
+
+// The exe's file name without ".exe" (normally "Overlook").
+static std::wstring ExeStem() {
+    std::wstring p = ExePath();
+    const size_t slash = p.find_last_of(L"\\/");
+    if (slash != std::wstring::npos) p = p.substr(slash + 1);
+    const size_t dot = p.find_last_of(L'.');
+    return dot == std::wstring::npos ? p : p.substr(0, dot);
+}
+
+// Portable by default: the settings, log and caches sit beside the exe. When that folder can't be
+// written (Program Files without admin rights), they go to %APPDATA%\Overlook instead, and an
+// Overlook.ini shipped beside the exe is copied there once as the starting point.
+std::wstring DataDir() {
+    static const std::wstring dir = [] {
+        const std::wstring exe = ExeDir();
+        if (CanWriteIn(exe)) return exe;
+        PWSTR p = nullptr;
+        std::wstring d;
+        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, KF_FLAG_CREATE, nullptr, &p))) d = std::wstring(p) + L"\\Overlook";
+        CoTaskMemFree(p);
+        if (d.empty()) return exe;
+        CreateDirectoryW(d.c_str(), nullptr);
+        const std::wstring ini = L"\\" + ExeStem() + L".ini";
+        CopyFileW((exe + ini).c_str(), (d + ini).c_str(), TRUE);   // TRUE: never overwrite
+        return d;
+    }();
+    return dir;
+}
+
+std::wstring ExeBase() { return DataDir() + L"\\" + ExeStem(); }
 
 std::wstring IniPath() { return ExeBase() + L".ini"; }
 
@@ -240,7 +275,7 @@ L"; Hide every clock (also from the tray menu). Show=0 in a [Monitor ...] sectio
 L"HideClocks=0\r\n"
 L"; Monitors whose clock is switched off in the tray menu, by name, separated by ;\r\n"
 L"HiddenMonitors=\r\n"
-L"; Write Overlook.log next to the exe\r\n"
+L"; Write Overlook.log in the settings folder\r\n"
 L"Log=0\r\n"
 L"\r\n"
 L"; Per-monitor overrides: a [Monitor <which>] section (same names as Monitor=) can set any key above\r\n"

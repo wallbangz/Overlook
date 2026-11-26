@@ -407,10 +407,10 @@ void Window::BuildControls() {
     link(5, L"Weather", L"Data by Open-Meteo.com, CC BY 4.0", L"open-meteo.com", kUrl, L"https://open-meteo.com");
     link(5, L"Font", L"Inter Display by Rasmus Andersson, SIL Open Font License 1.1", L"rsms.me/inter", kUrl, L"https://rsms.me/inter/");
     header(5, L"Files");
-    link(5, L"Settings and logs", ExeDir().c_str(), L"Open folder", kOpenFolder, L"");
+    link(5, L"Settings and logs", DataDir().c_str(), L"Open folder", kOpenFolder, L"");
     header(5, L"Troubleshooting");
     {
-        const int l = add(Kind::Toggle, 5, L"Log", L"Diagnostic log", L"Write Overlook.log next to the app, for bug reports", L"0");
+        const int l = add(Kind::Toggle, 5, L"Log", L"Diagnostic log", L"Write Overlook.log in the settings folder, for bug reports", L"0");
         ctls[l].appWide = true;
         row({ l });
         const int p = add(Kind::Toggle, 5, L"LogPrivate", L"Include private details",
@@ -1572,7 +1572,7 @@ void Window::Activate(int i) {
         if (c.action == kUndo) Undo();
         else if (c.action == kOpenIni) ShellExecuteW(hwnd, L"open", iniPath_.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         else if (c.action == kUrl) ShellExecuteW(hwnd, L"open", c.url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-        else if (c.action == kOpenFolder) ShellExecuteW(hwnd, L"open", ExeDir().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        else if (c.action == kOpenFolder) ShellExecuteW(hwnd, L"open", DataDir().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         else if (c.action == kOpenLog) {   // Explorer with Overlook.log selected, or just the folder
             const std::wstring log = ExeBase() + L".log";
             bool shown = false;
@@ -1581,7 +1581,7 @@ void Window::Activate(int i) {
                     shown = SUCCEEDED(SHOpenFolderAndSelectItems(pidl, 0, nullptr, 0));
                     ILFree(pidl);
                 }
-            if (!shown) ShellExecuteW(hwnd, L"open", ExeDir().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            if (!shown) ShellExecuteW(hwnd, L"open", DataDir().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         }
         else if (c.action == kCopyReport) CopyReport(i);
         else if (c.action == kCheckUpdates) { if (host_.checkUpdates) host_.checkUpdates(); LoadValues(); }

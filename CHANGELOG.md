@@ -4,6 +4,11 @@ What changed in each version of Overlook. Each release on GitHub shows its secti
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-26
+
+### Fixed
+- **Settings weren't kept when Overlook was in a read-only folder** such as `C:\Program Files`: no `Overlook.ini` was created, the settings window couldn't save, and **Edit settings file** did nothing. Overlook still keeps its files beside the exe when it can. When that folder can't be written, it now uses `%APPDATA%\Overlook`, copying an `Overlook.ini` found beside the exe there once. **Open folder** opens whichever folder is in use.
+
 ## [0.4.0-beta.1] - 2026-11-25
 
 A beta for trying the weather effects; settings and the ini work as in 0.3.1.
@@ -63,6 +68,7 @@ First public release.
 
 [Unreleased]: https://github.com/wallbangz/Overlook/compare/v0.4.0-beta.1...HEAD
 [0.4.0-beta.1]: https://github.com/wallbangz/Overlook/compare/v0.3.1...v0.4.0-beta.1
+[0.3.2]: https://github.com/wallbangz/Overlook/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/wallbangz/Overlook/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/wallbangz/Overlook/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/wallbangz/Overlook/compare/v0.2.0...v0.2.1

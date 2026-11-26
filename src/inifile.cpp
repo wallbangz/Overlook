@@ -454,8 +454,8 @@ int RunIniTest(const std::wstring& dir) {
     else r.Check(false, "default: could not write default.ini");
 
     // (b) the user's own ini, if there is one (values are never printed)
-    if (ReadFileBytes(ExeDir() + L"\\Overlook.ini", bytes)) RunCase(r, "user", bytes, dir, L"b-user");
-    else r.Note("user: no Overlook.ini next to the exe, skipped");
+    if (ReadFileBytes(IniPath(), bytes)) RunCase(r, "user", bytes, dir, L"b-user");
+    else r.Note("user: no Overlook.ini in the settings folder, skipped");
 
     // (c) a hand-made tricky file: UTF-8 without BOM, LF, no final newline
     std::wstring tricky =

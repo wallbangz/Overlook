@@ -113,7 +113,8 @@ struct Settings {
     bool   logPrivate    = false;    // app-wide: wallpaper names, track titles and the weather place unmasked in the log
 };
 
-std::wstring ExeBase();   // the exe's path without ".exe": Overlook.ini, .log and .weather.ini sit beside it
+std::wstring DataDir();   // where Overlook.ini, .log and .weather.ini live: the exe's folder, or %APPDATA%\Overlook if it can't be written
+std::wstring ExeBase();   // DataDir() + the exe's name without ".exe"
 std::wstring IniPath();
 std::wstring ExeDir();
 std::wstring ExePath();
