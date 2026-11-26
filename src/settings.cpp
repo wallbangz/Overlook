@@ -1,4 +1,5 @@
 #include "settings.h"
+#include <cmath>
 #include <cstdio>
 #include <cstdarg>
 #include <cwchar>
@@ -284,7 +285,8 @@ static double ReadNum(const Src& ini, const wchar_t* key, double def) {
     if (!s.empty() && s.back() == L'%') s.pop_back();
     wchar_t* end = nullptr;
     double v = wcstod(s.c_str(), &end);
-    return end == s.c_str() ? def : v;
+    // wcstod also reads "nan" and "inf", which Clamp() would let through (NaN fails both comparisons)
+    return end == s.c_str() || !std::isfinite(v) ? def : v;
 }
 
 static bool ReadBool(const Src& ini, const wchar_t* key, bool def) {
@@ -314,7 +316,7 @@ static double Clamp(double v, double lo, double hi) { return v < lo ? lo : (v > 
 // Keys that can also be set per monitor; defaults (and missing keys) come from `d`.
 static void ReadClockKeys(const Src& ini, const Settings& d, Settings& s) {
     s.verticalPos      = Clamp(ReadNum(ini, L"VerticalPosition", d.verticalPos), 0, 100);
-    s.horizontalOffset = ReadNum(ini, L"HorizontalOffset", d.horizontalOffset);
+    s.horizontalOffset = Clamp(ReadNum(ini, L"HorizontalOffset", d.horizontalOffset), -10000, 10000);
     s.timeSize         = Clamp(ReadNum(ini, L"TimeSize", d.timeSize), 4, 1000);
     s.dateSize         = Clamp(ReadNum(ini, L"DateSize", d.dateSize), 4, 400);
     s.gap              = Clamp(ReadNum(ini, L"Gap", d.gap), -500, 1000);

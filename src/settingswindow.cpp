@@ -69,7 +69,7 @@ double ParseNum(std::wstring s, double def) {
     if (s.empty()) return def;
     wchar_t* end = nullptr;
     const double v = wcstod(s.c_str(), &end);
-    return end == s.c_str() ? def : v;
+    return end == s.c_str() || !std::isfinite(v) ? def : v;   // no "nan" or "inf", as in settings.cpp
 }
 
 std::wstring Fmt(double v, int decimals) {

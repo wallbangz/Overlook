@@ -25,8 +25,12 @@ public:
     }
 
 private:
+    // Each value is a JVal of over 100 bytes, so a body of "[0,0,0,...]" would take ~60x its size.
+    // Real responses have a few thousand values; past this many, the body is rejected.
+    static constexpr size_t kMaxNodes = 200000;
     const char* p_;
     const char* end_;
+    size_t nodes_ = 0;
 
     void SkipWs() {
         while (p_ < end_ && (*p_ == ' ' || *p_ == '\t' || *p_ == '\n' || *p_ == '\r')) ++p_;
@@ -40,7 +44,7 @@ private:
     }
 
     bool Value(JVal& v, int depth) {
-        if (depth > 64 || p_ >= end_) return false;
+        if (depth > 64 || p_ >= end_ || ++nodes_ > kMaxNodes) return false;
         switch (*p_) {
         case '{': return Object(v, depth);
         case '[': return ArrayV(v, depth);
@@ -253,7 +257,7 @@ bool HttpGet(const wchar_t* host, const std::wstring& pathAndQuery, std::string&
         err = L"HTTP " + std::to_wstring(status) + L" from " + host;
         return false;
     }
-    const size_t kMaxBody = 4u << 20;
+    const size_t kMaxBody = 1u << 20;   // real responses are under 150 KB (GitHub's list of 30 releases)
     for (;;) {
         DWORD avail = 0;
         if (!WinHttpQueryDataAvailable(req.h, &avail)) {

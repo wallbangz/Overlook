@@ -537,6 +537,13 @@ int RunUpdateTest(const std::wstring& dir) {
         r.Check(PickRelease("[]", true, i) && i.tag.empty(), "no releases: nothing newer");
         r.Check(PickRelease("{\"message\": \"Not Found\"}", false, i) && i.tag.empty(), "an error object: nothing newer");
         r.Check(PickRelease("[{\"tag_name\": 3}, 7, null]", true, i) && i.tag.empty(), "wrong types: skipped");
+        auto zeros = [](size_t n) {
+            std::string s = "[";
+            for (size_t k = 0; k < n; ++k) s += k ? ",0" : "0";
+            return s + "]";
+        };
+        r.Check(PickRelease(zeros(150000), true, i) && i.tag.empty(), "150,000 values: read");
+        r.Check(!PickRelease(zeros(250000), true, i), "250,000 values: rejected (the JSON reader's value cap)");
     }
 
     // Status lines and scheduling

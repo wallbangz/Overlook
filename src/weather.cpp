@@ -39,6 +39,14 @@ std::string Narrow(const std::wstring& w) {
     return s;
 }
 
+// A number from the network as an int, clamped first: casting a double outside int's range (the
+// JSON reader accepts 1e300) is undefined behaviour.
+int ClampInt(double v, int lo, int hi) {
+    if (!(v >= lo)) return lo;
+    if (v > hi) return hi;
+    return (int)v;
+}
+
 std::wstring Trim(const std::wstring& s) {
     size_t b = 0, e = s.size();
     while (b < e && iswspace(s[b])) ++b;
@@ -338,8 +346,8 @@ void AirQuality(const GeoResult& geo, WeatherReading& r) {
     }
     const JVal* cur = Get(&root, "current");
     double v;
-    if (GetNum(Get(cur, "european_aqi"), v)) r.euAqi = (int)std::lround(v);
-    if (GetNum(Get(cur, "us_aqi"), v)) r.usAqi = (int)std::lround(v);
+    if (GetNum(Get(cur, "european_aqi"), v)) r.euAqi = ClampInt(std::round(v), 0, 1000);
+    if (GetNum(Get(cur, "us_aqi"), v)) r.usAqi = ClampInt(std::round(v), 0, 1000);
 }
 
 bool Forecast(const GeoResult& geo, const WeatherRequest& req, WeatherReading& out, std::wstring& err) {
@@ -369,18 +377,18 @@ bool Forecast(const GeoResult& geo, const WeatherRequest& req, WeatherReading& o
     r.temp = temp;
     r.high = hi;
     r.low = lo;
-    r.code = (int)code;
+    r.code = ClampInt(code, 0, 99);   // WMO codes
     r.isDay = isDay != 0;
     r.fahrenheit = req.fahrenheit;
     r.latitude = geo.lat;
     if (!GetNum(Get(cur, "uv_index"), r.uvIndex)) r.uvIndex = -1;
     double offset = 0;
     GetNum(Get(&root, "utc_offset_seconds"), offset);
-    r.utcOffset = (int)offset;
+    r.utcOffset = ClampInt(offset, -18 * 3600, 18 * 3600);   // seconds; real zones are within ±14 h
     r.hasApparent = GetNum(Get(cur, "apparent_temperature"), r.apparent);
     double wdir = 0;
     r.hasWind = GetNum(Get(cur, "wind_speed_10m"), r.windSpeed) && GetNum(Get(cur, "wind_direction_10m"), wdir);
-    r.windDir = (int)std::lround(wdir) % 360;
+    r.windDir = ClampInt(std::round(wdir), 0, 360) % 360;
     for (size_t d = 0; d < 2; ++d) {
         ULONGLONG rise = 0, set = 0;
         // Polar day/night: Open-Meteo still sends times, but sunrise == sunset or they sit at midnight.
@@ -414,7 +422,7 @@ bool Forecast(const GeoResult& geo, const WeatherRequest& req, WeatherReading& o
             if (t < start || t >= end) continue;
             double p;
             if (!GetNum(&probs->arr[i], p)) continue;
-            int pi = (int)(p + 0.5);
+            int pi = ClampInt(p + 0.5, 0, 100);
             if (pi > best) { best = pi; bestTicks = t; }
         }
         r.rainChance = best;

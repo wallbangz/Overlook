@@ -9,6 +9,8 @@ What changed in each version of Overlook. Each release on GitHub shows its secti
 
 ### Fixed
 - A release with a very long version tag no longer closes Overlook when the update notification shows; the notification title is cut short instead. Such tags (a pre-release part over 32 characters) are now ignored by the update check. The effects report from the Debug page no longer closes Overlook when `WeatherEffectsForce` holds a long value.
+- A number written as `nan` or `inf` in `Overlook.ini` now counts as missing (the default is used) instead of reaching the drawing code, and `HorizontalOffset` is limited to ±10000.
+- Weather and update-check replies are read more defensively: out-of-range numbers are clamped before use, and a reply over 1 MB or with more than 200,000 JSON values is rejected.
 
 ## [0.4.0-beta.1] - 2026-11-25
 
