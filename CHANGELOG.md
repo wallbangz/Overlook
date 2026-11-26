@@ -4,6 +4,8 @@ What changed in each version of Overlook. Each release on GitHub shows its secti
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-26
+
 ### Fixed
 - **Settings weren't kept when Overlook was in a read-only folder** such as `C:\Program Files`: no `Overlook.ini` was created, the settings window couldn't save, and **Edit settings file** did nothing. Overlook still keeps its files beside the exe when it can. When that folder can't be written, it now uses `%APPDATA%\Overlook`, copying an `Overlook.ini` found beside the exe there once. **Open folder** opens whichever folder is in use.
 
@@ -48,7 +50,8 @@ First public release.
 - OLED care: slow pixel shift and night dimming.
 - Pauses while the screen is off or locked; tray menu to hide the clocks or pick monitors; Start with Windows.
 
-[Unreleased]: https://github.com/wallbangz/Overlook/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/wallbangz/Overlook/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/wallbangz/Overlook/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/wallbangz/Overlook/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/wallbangz/Overlook/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/wallbangz/Overlook/compare/v0.2.0...v0.2.1
