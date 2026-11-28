@@ -3,6 +3,6 @@
 #define OVERLOOK_VERSION_MAJOR 0
 #define OVERLOOK_VERSION_MINOR 4
 #define OVERLOOK_VERSION_PATCH 0
-#define OVERLOOK_VERSION_STR   "0.4.0-beta.2"
+#define OVERLOOK_VERSION_STR   "0.4.0-beta.3"
 #define IDR_FONT_TIME   101   // InterDisplay-Bold.ttf
 #define IDR_FONT_DATE   102   // InterDisplay-Medium.ttf

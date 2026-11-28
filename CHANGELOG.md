@@ -4,6 +4,10 @@ What changed in each version of Overlook. Each release on GitHub shows its secti
 
 ## [Unreleased]
 
+## [0.4.0-beta.3] - 2026-11-28
+
+A beta with Remote Desktop support and security and robustness fixes; settings and the ini work as in beta.2.
+
 ### Added
 - **Run over Remote Desktop** (`WeatherEffectsOverRemote`, off by default; Settings › Weather): weather effects keep playing in a Remote Desktop session instead of pausing.
 
@@ -87,7 +91,8 @@ First public release.
 - OLED care: slow pixel shift and night dimming.
 - Pauses while the screen is off or locked; tray menu to hide the clocks or pick monitors; Start with Windows.
 
-[Unreleased]: https://github.com/wallbangz/Overlook/compare/v0.4.0-beta.2...HEAD
+[Unreleased]: https://github.com/wallbangz/Overlook/compare/v0.4.0-beta.3...HEAD
+[0.4.0-beta.3]: https://github.com/wallbangz/Overlook/compare/v0.4.0-beta.2...v0.4.0-beta.3
 [0.4.0-beta.2]: https://github.com/wallbangz/Overlook/compare/v0.4.0-beta.1...v0.4.0-beta.2
 [0.4.0-beta.1]: https://github.com/wallbangz/Overlook/compare/v0.3.1...v0.4.0-beta.1
 [0.3.2]: https://github.com/wallbangz/Overlook/compare/v0.3.1...v0.3.2
