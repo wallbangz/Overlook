@@ -39,7 +39,7 @@ struct UpdateStatus {
     bool newer = false;      // latest is newer than this build (kept when a later check fails)
 };
 
-// Loads the last result from Overlook.update.ini (beside the exe), when automatic checks are on.
+// Loads the last result from Overlook.update.ini (in the settings folder), when automatic checks are on.
 void UpdateInit(bool enabled);
 // A day since the last successful check, or never checked, or the channel changed.
 bool UpdateDue(bool beta);

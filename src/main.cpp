@@ -66,7 +66,10 @@ std::vector<std::wstring> g_wallSeen;   // per clock: the image the colour was l
 double g_fadeMs;                        // > 0: the duration of the transitions being started
 double FadeMs(const Settings& s) { return g_fadeMs > 0 ? g_fadeMs : s.transitionMs; }
 HPOWERNOTIFY g_powerNotify;
-bool Paused() { return g_displayOff || g_locked; }
+// In a Remote Desktop session the console displays are not what the user sees (they are usually
+// off while someone is connected), so their state is ignored there.
+bool Paused() { return (g_displayOff && !GetSystemMetrics(SM_REMOTESESSION)) || g_locked; }
+bool g_pausedNow;   // Paused() when SetPaused last acted on it
 // GUID_CONSOLE_DISPLAY_STATE (all console displays: 0 off, 1 on, 2 dimmed)
 const GUID kConsoleDisplayState = { 0x6fe69556, 0x704a, 0x47a0, { 0x8f, 0x24, 0xc2, 0x8d, 0x93, 0x6f, 0xda, 0x47 } };
 
@@ -780,7 +783,8 @@ const GUID kAcDcPowerSource   = { 0x5d3e9a59, 0xe9d5, 0x4b00, { 0xa6, 0xbd, 0xff
 const wchar_t* FxBlockedReason(const Clock& c) {
     if (Paused()) return L"display off/locked";
     if (g_s.debugMode && g_s.debugIgnorePauses) return nullptr;   // debug menu: watch them behind a maximised window
-    if (GetSystemMetrics(SM_REMOTESESSION)) return L"remote session";   // every frame would cross the network
+    if (GetSystemMetrics(SM_REMOTESESSION) && !g_s.weatherEffectsOverRemote)
+        return L"remote session";   // every frame would cross the network
     BOOL anim = TRUE;
     if (SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &anim, 0) && !anim) return L"animations off";
     if (g_saverLegacy || g_saverNew) return L"energy saver";
@@ -906,6 +910,8 @@ std::wstring EffectsReport() {
         out += line;
     }
     swprintf_s(line, L"Effects on battery: %s\r\n", g_s.weatherEffectsOnBattery ? L"on" : L"off");
+    out += line;
+    swprintf_s(line, L"Effects over Remote Desktop: %s\r\n", g_s.weatherEffectsOverRemote ? L"on" : L"off");
     out += line;
     return out;
 }
@@ -1294,12 +1300,12 @@ void AppendMonitorItems(HMENU m) {
 }
 
 void SetPaused(bool displayOff, bool locked) {
-    const bool was = Paused();
     g_displayOff = displayOff;
     g_locked = locked;
-    if (was == Paused()) return;
-    Log(L"%s (display %s, session %s)", Paused() ? L"paused" : L"resumed", displayOff ? L"off" : L"on",
-        locked ? L"locked" : L"unlocked");
+    if (g_pausedNow == Paused()) return;
+    g_pausedNow = Paused();
+    Log(L"%s (display %s, session %s%s)", Paused() ? L"paused" : L"resumed", displayOff ? L"off" : L"on",
+        locked ? L"locked" : L"unlocked", GetSystemMetrics(SM_REMOTESESSION) ? L", remote" : L"");
     if (Paused()) {
         KillTimer(g_ctl, TIMER_MINUTE);
         UpdateEffects();   // nothing animates while nobody can see it: DWM can go idle
@@ -1519,7 +1525,10 @@ LRESULT CALLBACK CtlProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_WTSSESSION_CHANGE:
         if (wp == WTS_SESSION_LOCK) SetPaused(g_displayOff, true);
         else if (wp == WTS_SESSION_UNLOCK) SetPaused(g_displayOff, false);
-        else if (wp >= WTS_CONSOLE_CONNECT && wp <= WTS_REMOTE_DISCONNECT) UpdateEffects();   // remote or not now
+        else if (wp >= WTS_CONSOLE_CONNECT && wp <= WTS_REMOTE_DISCONNECT) {   // remote or not now
+            SetPaused(g_displayOff, g_locked);   // the console display state counts only when local
+            UpdateEffects();
+        }
         return 0;
     case WM_POWERBROADCAST:
         if (wp == PBT_POWERSETTINGCHANGE) {
@@ -1552,7 +1561,7 @@ LRESULT CALLBACK CtlProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case ID_RELOAD: PostMessageW(hwnd, WM_APP_RELOAD, 0, 0); break;
         case ID_SETTINGS: PostMessageW(hwnd, WM_APP_SETTINGS, 0, 0); break;
         case ID_EDIT:   ShellExecuteW(nullptr, L"open", IniPath().c_str(), nullptr, nullptr, SW_SHOWNORMAL); break;
-        case ID_FOLDER: ShellExecuteW(nullptr, L"open", ExeDir().c_str(), nullptr, nullptr, SW_SHOWNORMAL); break;
+        case ID_FOLDER: ShellExecuteW(nullptr, L"open", DataDir().c_str(), nullptr, nullptr, SW_SHOWNORMAL); break;
         case ID_AUTOSTART: {
             bool on = !IsAutostartEnabled();
             SetAutostart(on);
@@ -1879,13 +1888,13 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR cmdLine, int) {
         std::wstring dir = t + wcslen(L"--ini-test");
         while (!dir.empty() && (iswspace(dir.front()) || dir.front() == L'"')) dir.erase(dir.begin());
         while (!dir.empty() && (iswspace(dir.back()) || dir.back() == L'"')) dir.pop_back();
-        return RunIniTest(dir.empty() ? ExeDir() : dir);
+        return RunIniTest(dir.empty() ? DataDir() : dir);
     }
     if (const wchar_t* t = wcsstr(cmdLine, L"--update-test")) {   // --update-test <folder>: version and JSON checks
         std::wstring dir = t + wcslen(L"--update-test");
         while (!dir.empty() && (iswspace(dir.front()) || dir.front() == L'"')) dir.erase(dir.begin());
         while (!dir.empty() && (iswspace(dir.back()) || dir.back() == L'"')) dir.pop_back();
-        return RunUpdateTest(dir.empty() ? ExeDir() : dir);
+        return RunUpdateTest(dir.empty() ? DataDir() : dir);
     }    if (const wchar_t* t = wcsstr(cmdLine, L"--weather-test")) {
         std::wstring dir = t + wcslen(L"--weather-test");
         while (!dir.empty() && (iswspace(dir.front()) || dir.front() == L'"')) dir.erase(dir.begin());
@@ -1920,7 +1929,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR cmdLine, int) {
             trim(wall);
         }
         trim(dir);
-        if (dir.empty()) dir = ExeDir();
+        if (dir.empty()) dir = DataDir();
         CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         const int rc = RunPreview(dir, wall);
         CoUninitialize();
@@ -1981,14 +1990,14 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR cmdLine, int) {
     }
 
     // Event-driven watches (no polling):
-    //  - the exe folder, so saved .ini edits apply without restarting;
+    //  - the settings folder, so saved .ini edits apply without restarting;
     //  - Explorer's Themes folder, rewritten whenever the wallpaper changes (slideshow
     //    changes are not always broadcast as WM_SETTINGCHANGE).
     wchar_t appData[MAX_PATH] = L"";
     GetEnvironmentVariableW(L"APPDATA", appData, MAX_PATH);
     const std::wstring themesDir = std::wstring(appData) + L"\\Microsoft\\Windows\\Themes";
     HANDLE watches[2] = {
-        FindFirstChangeNotificationW(ExeDir().c_str(), FALSE, FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_FILE_NAME),
+        FindFirstChangeNotificationW(DataDir().c_str(), FALSE, FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_FILE_NAME),
         FindFirstChangeNotificationW(themesDir.c_str(), FALSE, FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_FILE_NAME),
     };
     const UINT_PTR watchTimers[2] = { TIMER_RELOAD, TIMER_WALLPAPER };

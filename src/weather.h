@@ -43,7 +43,7 @@ struct WeatherReading {
 // city is empty). When it finishes, posts `msg` to `notify` with wParam = 1 on success, 0 on
 // failure; the result is then available from WeatherTakeResult().
 // City -> coordinates is resolved once with Open-Meteo's geocoding API and cached in
-// "Overlook.weather.ini" next to the exe, together with the last good reading.
+// "Overlook.weather.ini" in the settings folder, together with the last good reading.
 bool WeatherFetchAsync(HWND notify, UINT msg, const WeatherRequest& req);
 
 // The latest successful reading (from the last fetch, or from the cache file at startup).

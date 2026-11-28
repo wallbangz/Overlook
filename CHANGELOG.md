@@ -4,15 +4,31 @@ What changed in each version of Overlook. Each release on GitHub shows its secti
 
 ## [Unreleased]
 
+### Added
+- **Run over Remote Desktop** (`WeatherEffectsOverRemote`, off by default; Settings › Weather): weather effects keep playing in a Remote Desktop session instead of pausing.
+
 ### Security
 - When an update is offered, the About page shows the SHA-256 of its `Overlook.zip` as GitHub reports it, with **Copy**, so a download can be checked with `Get-FileHash`.
 - The update check only opens links into the project's own GitHub pages (`github.com/wallbangz/Overlook/`), not any github.com address.
 - Windows DLLs that Overlook needs at start-up now load only from System32, so a DLL of the same name next to `Overlook.exe` (for example in Downloads) is never loaded instead. The exe is also built with the compiler's extra security checks and marked compatible with CET shadow stacks.
 
 ### Fixed
+- **The clock didn't show over Remote Desktop** when the computer's own screen was off: it took the screen being off as a reason to pause. In a remote session that state is now ignored.
 - A release with a very long version tag no longer closes Overlook when the update notification shows; the notification title is cut short instead. Such tags (a pre-release part over 32 characters) are now ignored by the update check. The effects report from the Debug page no longer closes Overlook when `WeatherEffectsForce` holds a long value.
 - A number written as `nan` or `inf` in `Overlook.ini` now counts as missing (the default is used) instead of reaching the drawing code, and `HorizontalOffset` is limited to ±10000.
 - Weather and update-check replies are read more defensively: out-of-range numbers are clamped before use, and a reply over 1 MB or with more than 200,000 JSON values is rejected.
+
+## [0.4.0-beta.2] - 2026-11-26
+
+A beta with the 0.3.2 fix; the weather effects are as in beta.1.
+
+### Fixed
+- **Settings weren't kept when Overlook was in a read-only folder** such as `C:\Program Files`. When the exe's folder can't be written, the settings, log and caches now go to `%APPDATA%\Overlook`, and **Open folder** and **Open log folder** open it (from 0.3.2; #2, thanks @tjsuominen).
+
+## [0.3.2] - 2026-11-26
+
+### Fixed
+- **Settings weren't kept when Overlook was in a read-only folder** such as `C:\Program Files`: no `Overlook.ini` was created, the settings window couldn't save, and **Edit settings file** did nothing. Overlook still keeps its files beside the exe when it can. When that folder can't be written, it now uses `%APPDATA%\Overlook`, copying an `Overlook.ini` found beside the exe there once. **Open folder** opens whichever folder is in use. (#2, thanks @tjsuominen)
 
 ## [0.4.0-beta.1] - 2026-11-25
 
@@ -71,8 +87,10 @@ First public release.
 - OLED care: slow pixel shift and night dimming.
 - Pauses while the screen is off or locked; tray menu to hide the clocks or pick monitors; Start with Windows.
 
-[Unreleased]: https://github.com/wallbangz/Overlook/compare/v0.4.0-beta.1...HEAD
+[Unreleased]: https://github.com/wallbangz/Overlook/compare/v0.4.0-beta.2...HEAD
+[0.4.0-beta.2]: https://github.com/wallbangz/Overlook/compare/v0.4.0-beta.1...v0.4.0-beta.2
 [0.4.0-beta.1]: https://github.com/wallbangz/Overlook/compare/v0.3.1...v0.4.0-beta.1
+[0.3.2]: https://github.com/wallbangz/Overlook/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/wallbangz/Overlook/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/wallbangz/Overlook/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/wallbangz/Overlook/compare/v0.2.0...v0.2.1
