@@ -66,7 +66,10 @@ std::vector<std::wstring> g_wallSeen;   // per clock: the image the colour was l
 double g_fadeMs;                        // > 0: the duration of the transitions being started
 double FadeMs(const Settings& s) { return g_fadeMs > 0 ? g_fadeMs : s.transitionMs; }
 HPOWERNOTIFY g_powerNotify;
-bool Paused() { return g_displayOff || g_locked; }
+// In a Remote Desktop session the console displays are not what the user sees (they are usually
+// off while someone is connected), so their state is ignored there.
+bool Paused() { return (g_displayOff && !GetSystemMetrics(SM_REMOTESESSION)) || g_locked; }
+bool g_pausedNow;   // Paused() when SetPaused last acted on it
 // GUID_CONSOLE_DISPLAY_STATE (all console displays: 0 off, 1 on, 2 dimmed)
 const GUID kConsoleDisplayState = { 0x6fe69556, 0x704a, 0x47a0, { 0x8f, 0x24, 0xc2, 0x8d, 0x93, 0x6f, 0xda, 0x47 } };
 
@@ -1297,12 +1300,12 @@ void AppendMonitorItems(HMENU m) {
 }
 
 void SetPaused(bool displayOff, bool locked) {
-    const bool was = Paused();
     g_displayOff = displayOff;
     g_locked = locked;
-    if (was == Paused()) return;
-    Log(L"%s (display %s, session %s)", Paused() ? L"paused" : L"resumed", displayOff ? L"off" : L"on",
-        locked ? L"locked" : L"unlocked");
+    if (g_pausedNow == Paused()) return;
+    g_pausedNow = Paused();
+    Log(L"%s (display %s, session %s%s)", Paused() ? L"paused" : L"resumed", displayOff ? L"off" : L"on",
+        locked ? L"locked" : L"unlocked", GetSystemMetrics(SM_REMOTESESSION) ? L", remote" : L"");
     if (Paused()) {
         KillTimer(g_ctl, TIMER_MINUTE);
         UpdateEffects();   // nothing animates while nobody can see it: DWM can go idle
@@ -1521,7 +1524,10 @@ LRESULT CALLBACK CtlProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_WTSSESSION_CHANGE:
         if (wp == WTS_SESSION_LOCK) SetPaused(g_displayOff, true);
         else if (wp == WTS_SESSION_UNLOCK) SetPaused(g_displayOff, false);
-        else if (wp >= WTS_CONSOLE_CONNECT && wp <= WTS_REMOTE_DISCONNECT) UpdateEffects();   // remote or not now
+        else if (wp >= WTS_CONSOLE_CONNECT && wp <= WTS_REMOTE_DISCONNECT) {   // remote or not now
+            SetPaused(g_displayOff, g_locked);   // the console display state counts only when local
+            UpdateEffects();
+        }
         return 0;
     case WM_POWERBROADCAST:
         if (wp == PBT_POWERSETTINGCHANGE) {

@@ -7,6 +7,9 @@ What changed in each version of Overlook. Each release on GitHub shows its secti
 ### Added
 - **Run over Remote Desktop** (`WeatherEffectsOverRemote`, off by default; Settings › Weather): weather effects keep playing in a Remote Desktop session instead of pausing.
 
+### Fixed
+- **The clock didn't show over Remote Desktop** when the computer's own screen was off: it took the screen being off as a reason to pause. In a remote session that state is now ignored.
+
 ## [0.4.0-beta.2] - 2026-11-26
 
 A beta with the 0.3.2 fix; the weather effects are as in beta.1.
