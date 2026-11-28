@@ -780,7 +780,8 @@ const GUID kAcDcPowerSource   = { 0x5d3e9a59, 0xe9d5, 0x4b00, { 0xa6, 0xbd, 0xff
 const wchar_t* FxBlockedReason(const Clock& c) {
     if (Paused()) return L"display off/locked";
     if (g_s.debugMode && g_s.debugIgnorePauses) return nullptr;   // debug menu: watch them behind a maximised window
-    if (GetSystemMetrics(SM_REMOTESESSION)) return L"remote session";   // every frame would cross the network
+    if (GetSystemMetrics(SM_REMOTESESSION) && !g_s.weatherEffectsOverRemote)
+        return L"remote session";   // every frame would cross the network
     BOOL anim = TRUE;
     if (SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &anim, 0) && !anim) return L"animations off";
     if (g_saverLegacy || g_saverNew) return L"energy saver";
@@ -906,6 +907,8 @@ std::wstring EffectsReport() {
         out += line;
     }
     swprintf_s(line, L"Effects on battery: %s\r\n", g_s.weatherEffectsOnBattery ? L"on" : L"off");
+    out += line;
+    swprintf_s(line, L"Effects over Remote Desktop: %s\r\n", g_s.weatherEffectsOverRemote ? L"on" : L"off");
     out += line;
     return out;
 }

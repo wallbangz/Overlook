@@ -45,7 +45,7 @@ Right-click the tray icon and choose **Settings…**. Every change shows on the 
 |---|---|
 | **Clock** | 24-hour or 12-hour time with AM/PM, leading zero, date format and language (with a preview of today), Start with Windows |
 | **Look** | Vertical position, time and date size, text colour, auto-contrast (dark text on bright wallpapers), tint, opacity, the weather and now-playing lines' opacity, shadow, adapting to busy wallpapers, the minute transition |
-| **Weather** | The weather line on or off, your city, °C or °F, and the extras: chance of rain, feels like, wind, UV, air quality, sunrise and sunset. Weather effects: on or off, the real weather or one effect of your choice, opacity, lightning, running on battery |
+| **Weather** | The weather line on or off, your city, °C or °F, and the extras: chance of rain, feels like, wind, UV, air quality, sunrise and sunset. Weather effects: on or off, the real weather or one effect of your choice, opacity, lightning, running on battery or over Remote Desktop |
 | **Now playing** | The now-playing line on or off, which apps it listens to, how long it stays after you pause |
 | **Monitors** | Which monitors show a clock, OLED care (pixel shift, night dimming and its opacity) |
 | **About** | Version, checking for updates (once a day, or now) and a button to get the latest release, links to the source and issues, credits, and a diagnostic log for bug reports |

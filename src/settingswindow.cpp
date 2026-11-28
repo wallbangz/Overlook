@@ -331,6 +331,10 @@ void Window::BuildControls() {
                           L"Effects pause on battery unless this is on", L"0");
         ctls[b].appWide = true;
         row({ b });
+        const int r = add(Kind::Toggle, 2, L"WeatherEffectsOverRemote", L"Run over Remote Desktop",
+                          L"Effects pause in a remote session unless this is on; every frame crosses the network", L"0");
+        ctls[r].appWide = true;
+        row({ r });
     }
 
     // Now playing

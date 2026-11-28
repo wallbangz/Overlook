@@ -464,6 +464,7 @@ Settings LoadSettings() {
     s.log              = ReadBool(ini, L"Log", d.log);
     s.logPrivate       = ReadBool(ini, L"LogPrivate", d.logPrivate);
     s.weatherEffectsOnBattery = ReadBool(ini, L"WeatherEffectsOnBattery", d.weatherEffectsOnBattery);
+    s.weatherEffectsOverRemote = ReadBool(ini, L"WeatherEffectsOverRemote", d.weatherEffectsOverRemote);
     // The debug menu (not in the default file: it is hidden). Read as written; only used while DebugMode=1.
     s.debugMode        = ReadBool(ini, L"DebugMode", d.debugMode);
     s.debugEffectsEverywhere = ReadBool(ini, L"DebugEffectsEverywhere", d.debugEffectsEverywhere);
